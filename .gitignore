@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Databases and runtime data
+*.db
+*.db-wal
+*.db-shm
+server.log
+
+# Secrets and certificates
+.env
+certs/
+*.pem
+*.key
+*.pfx
+
+# Tooling / OS
+node_modules/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,106 @@
+/* SIM studio - guided IoT SIM / i-SIM / eSIM provisioning & lifecycle */
+
+.studio-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin:0 0 16px}
+.studio-metric{background:#fff;border:1px solid var(--border);border-radius:11px;padding:12px 14px;min-width:0}
+.studio-metric span{display:block;font-size:8.5px;letter-spacing:.7px;text-transform:uppercase;color:#98a0b1;margin-bottom:6px}
+.studio-metric strong{display:block;font-size:16px;letter-spacing:-.5px;line-height:1.2}
+.studio-metric small{display:block;font-size:10px;color:var(--muted);margin-top:4px}
+@media (max-width:900px){.studio-metrics{grid-template-columns:repeat(2,1fr)}}
+
+.studio-steps{display:flex;gap:10px;list-style:none;padding:0;margin:0 0 18px;flex-wrap:wrap}
+.studio-steps li{flex:1;min-width:148px;display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:11px 13px;font-size:11px;font-weight:600;color:#8b92a3}
+.studio-steps li b{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#f1f3f7;color:#8b92a3;font-size:10px;flex:none}
+.studio-steps li.done{color:#279874;border-color:#d9f0e7}
+.studio-steps li.done b{background:#ebf8f3;color:#279874}
+.studio-steps li.current{color:var(--text);border-color:#ffd0a3;box-shadow:0 4px 14px #ff98001f}
+.studio-steps li.current b{background:var(--purple);color:#fff}
+
+.studio-panel{background:#fff;border:1px solid var(--border);border-radius:13px;padding:22px;margin-bottom:18px}
+.studio-section-head h2{font-size:16px;letter-spacing:-.4px;margin-bottom:5px}
+.studio-section-head p{color:var(--muted);font-size:11px;margin-bottom:16px}
+
+.studio-type-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.studio-type-card{display:flex;flex-direction:column;gap:9px;text-align:left;background:#fff;border:1px solid var(--border);border-radius:12px;padding:17px;transition:transform .18s,border-color .18s,box-shadow .18s}
+.studio-type-card:hover{border-color:#ffc991;transform:translateY(-2px);box-shadow:0 10px 24px #10182a12}
+.studio-type-card.selected{border-color:var(--purple);box-shadow:0 0 0 3px #ff980022}
+.studio-type-icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:#fff1e6;color:#e08200}
+.studio-type-icon svg{width:19px;height:19px}
+.studio-type-card h3{font-size:14px;letter-spacing:-.3px}
+.studio-type-tag{color:var(--muted);font-size:11px;line-height:1.5}
+.studio-type-card ul{margin:0;padding-left:15px;color:#687086;font-size:10.5px;line-height:1.8}
+.studio-type-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px;font-size:10px;color:#9299a8}
+.studio-pick{display:inline-flex;align-items:center;gap:6px;border:1px solid #ffd8b0;background:#fff7ef;color:#cf7100;border-radius:7px;padding:7px 11px;font-size:10px;font-weight:700}
+.studio-pick svg{width:12px;height:12px}
+
+.studio-form{display:grid;gap:15px}
+.studio-qty-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.studio-hint{display:flex;gap:9px;align-items:flex-start;background:#f7f9fc;border:1px dashed #dfe4ee;border-radius:9px;padding:11px 13px;font-size:10.5px;line-height:1.6;color:#69718a}
+.studio-hint svg{width:14px;height:14px;flex:none;margin-top:1px;color:#e08200}
+.studio-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:4px}
+
+.studio-review{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+.studio-review div{background:#f9fafc;border:1px solid #eef0f5;border-radius:8px;padding:10px 12px;min-width:0}
+.studio-review span{display:block;font-size:8.5px;letter-spacing:.7px;text-transform:uppercase;color:#98a0b1;margin-bottom:4px}
+.studio-review strong{font-size:11.5px;word-break:break-word}
+
+
+.studio-result{border:1px solid var(--border);border-radius:12px;padding:17px;background:#fff;margin-bottom:13px}
+.studio-result-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px;flex-wrap:wrap}
+.studio-result-head h3{font-size:14px;letter-spacing:-.3px;margin-bottom:3px}
+.studio-result-head p{font-size:10.5px;color:var(--muted)}
+.studio-chip{display:inline-flex;align-items:center;gap:6px;background:#fff1e6;color:#cf7100;border-radius:20px;padding:5px 10px;font-size:9px;font-weight:700;letter-spacing:.4px}
+
+.sim-ident{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:9px}
+.sim-ident div{background:#f9fafc;border:1px solid #eef0f5;border-radius:8px;padding:9px 11px;min-width:0}
+.sim-ident span{display:block;font-size:8.5px;letter-spacing:.7px;text-transform:uppercase;color:#98a0b1;margin-bottom:4px}
+.sim-ident strong{display:block;font-size:11px;word-break:break-all}
+.sim-ident .sim-copy{border:0;background:none;color:#cf7100;font-size:9px;font-weight:700;padding:0;margin-top:5px}
+
+.studio-qr{display:flex;gap:16px;align-items:center;flex-wrap:wrap;background:#f9fafc;border:1px solid #eef0f5;border-radius:10px;padding:14px;margin-top:13px}
+.studio-qr img{width:132px;height:132px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px;flex:none}
+.studio-qr-info{flex:1;min-width:190px}
+.studio-qr-info strong{display:block;font-size:11px;margin-bottom:5px}
+.studio-qr-info small{display:block;font-size:10px;color:var(--muted);line-height:1.6}
+.sim-code{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;line-height:1.5;word-break:break-all;background:#fff;border:1px solid #e6e9f0;border-radius:7px;padding:8px 10px;margin-top:6px;color:#3d4657}
+.studio-install{margin:12px 0 0;padding-left:17px;font-size:10.5px;line-height:1.8;color:#69718a}
+.studio-install b{color:var(--text)}
+
+.studio-recent-list{display:grid;gap:8px}
+.studio-recent-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid #eef0f5;border-radius:9px;padding:10px 12px}
+.studio-recent-row .studio-recent-name{flex:1;min-width:160px}
+.studio-recent-name strong{display:block;font-size:11.5px}
+.studio-recent-name small{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+.studio-empty{border:1px dashed #dfe4ee;border-radius:9px;padding:16px;text-align:center;color:#98a0b1;font-size:10.5px}
+
+.badge.provisioned{color:#3d7cba;background:#eef5fd}
+.badge.provisioned:before{background:#5b95d2}
+.badge.terminated{color:#b6554f;background:#fdeeee}
+.badge.terminated:before{background:#d0706a}
+
+/* SIM detail drawer */
+.sim-drawer-backdrop{position:fixed;inset:0;z-index:120;display:flex;justify-content:flex-end;background:#10182a88;backdrop-filter:blur(2px)}
+.sim-drawer-backdrop[hidden]{display:none}
+.sim-drawer{width:min(470px,100%);height:100%;background:#fff;display:flex;flex-direction:column;box-shadow:-18px 0 50px #10182a2e;animation:simDrawerIn .22s ease}
+@keyframes simDrawerIn{from{transform:translateX(26px);opacity:.4}to{transform:none;opacity:1}}
+.sim-drawer-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:18px 20px;border-bottom:1px solid var(--border)}
+.sim-drawer-head h2{font-size:16px;letter-spacing:-.4px;margin-bottom:4px}
+.sim-drawer-head p{font-size:10.5px;color:var(--muted)}
+.sim-drawer-body{padding:18px 20px 34px;overflow:auto}
+.sim-drawer-actions{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0 4px}
+.sim-drawer-actions .btn{padding:8px 11px;font-size:10px}
+.sim-usage{margin-top:14px}
+.sim-usage-top{display:flex;justify-content:space-between;font-size:10.5px;color:#69718a;margin-bottom:6px}
+.sim-usage .progress{width:100%;height:6px}
+.sim-drawer-section{margin-top:18px}
+.sim-drawer-section h4{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:#98a0b1;margin:0 0 9px}
+
+@media (max-width:960px){
+  .studio-type-grid{grid-template-columns:1fr}
+  .studio-review{grid-template-columns:1fr}
+  .studio-qty-row{grid-template-columns:1fr}
+  .studio-steps li{min-width:0;flex:1 0 44%}
+}
+@media (max-width:560px){
+  .studio-panel{padding:16px}
+  .studio-qr img{width:112px;height:112px}
+}

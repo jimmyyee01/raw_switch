@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Carrier SIM Aggregator</title>
+  <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>📡 Multi‑Carrier SIM Aggregator</h1>
+    <p>Global coverage on a single SIM</p>
+  </header>
+
+  <main>
+    <section id="devices" class="panel">
+      <h2>Devices</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ICCID</th>
+            <th>Current Carrier</th>
+            <th>Status</th>
+            <th>Bandwidth (Mbps)</th>
+            <th>Latency (ms)</th>
+            <th>Last Switch</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="deviceTable"></tbody>
+      </table>
+    </section>
+
+    <section id="switchPanel" class="panel" style="display:none;">
+      <h2>Force Network Switch</h2>
+      <label>
+        Select Device:
+        <select id="switchDevice">
+          <option value="">— Choose device —</option>
+        </select>
+      </label>
+      <button id="switchBtn" disabled>Switch Network</button>
+      <div id="switchStatus"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>API base URL: <span id="apiBase">http://localhost:8000</span></p>
+  </footer>
+<canvas id="bandwidthChart" width="800" height="400" style="margin:2rem auto; display:block;"></canvas>
+
+<section id="esimPanel" class="panel" style="display:none;">
+  <h2>eSIM Profiles</h2>
+  <table id="esimTable">
+    <thead>
+      <tr>
+        <th>ICCID</th>
+        <th>Carrier</th>
+        <th>Status</th>
+        <th>Activated At</th>
+        <th>Deactivated At</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <canvas id="statusChart" width="400" height="200" style="margin:1rem auto; display:block;"></canvas>
+</section>
+  <script src="script.js"></script>
+</body>
+</html>

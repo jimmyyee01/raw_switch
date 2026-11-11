@@ -1,0 +1,8 @@
+# Server certificates and secrets — never commit these.
+certs/
+*.pem
+*.pfx
+*.key
+.env
+server.log
+__pycache__/

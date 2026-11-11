@@ -1,0 +1,13 @@
+[Unit]
+Description=RAW-Switch IoT Connectivity Platform
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/raw-switch-iot
+ExecStart=/usr/bin/python3 -m http.server 80 --bind 0.0.0.0 --directory /var/www/raw-switch-iot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
