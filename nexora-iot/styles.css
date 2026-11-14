@@ -395,3 +395,14 @@ body.not-admin [data-billing-rate]{display:none!important}
 .twofa-secret{margin-top:12px;padding:12px;border:1px dashed #dfe4ee;border-radius:8px;background:#fbfcfe}
 .twofa-secret code{display:block;font-size:12px;letter-spacing:1px;color:#20273a;margin:6px 0;word-break:break-all}
 .twofa-secret small{font-size:9px;color:#8f97a7;line-height:1.5;word-break:break-all}
+/* Sign-in logo */
+.auth-brand .brand-mark.auth-logo{width:46px;height:46px;border-radius:12px;background:transparent;overflow:visible}
+.auth-brand .brand-mark.auth-logo img{width:46px;height:46px;border-radius:12px;object-fit:contain;padding:0;background:transparent}
+.auth-brand{gap:12px;margin-bottom:22px}
+.auth-brand span{line-height:1.1}
+/* System logo: normal brand size, transparent so the menu bar shows through */
+.brand-mark:has(img:not([hidden])){background:transparent}
+.brand-mark img{background:transparent;padding:0;border-radius:9px}
+.auth-brand .brand-mark.auth-logo{width:34px;height:34px;border-radius:10px}
+.auth-brand .brand-mark.auth-logo img{width:34px;height:34px;border-radius:10px}
+.auth-brand span{line-height:1.1}
