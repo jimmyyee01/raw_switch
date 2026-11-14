@@ -250,6 +250,9 @@
         return;
       }
       if (typeof applyCompanyBranding === 'function') { applyCompanyBranding(); }
+      if (typeof AUTH_API !== 'undefined') {
+        fetch(AUTH_API + '/branding', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(companyBranding) }).catch(function () {});
+      }
       toast('Workspace branding saved');
     });
 

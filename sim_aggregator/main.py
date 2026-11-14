@@ -168,10 +168,11 @@ SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "12"))
 PUBLIC_PATHS = ("/auth/login", "/system/health",
                 "/auth/password-reset/request", "/auth/password-reset/confirm")
 PUBLIC_PREFIXES = ("/billing/pesapal/", "/webhooks/")
+PUBLIC_GET_PATHS = {"/branding"}
 API_PREFIXES = (
     "/auth", "/customers", "/plans", "/inventory", "/devices", "/marketplace",
     "/telecom", "/euicc", "/rsp", "/esim", "/sims", "/roaming", "/system",
-    "/webhooks", "/billing", "/alerts", "/logs", "/trash", "/email",
+    "/webhooks", "/billing", "/alerts", "/logs", "/trash", "/email", "/branding",
 )
 
 # (methods, path regex) that only administrators may call.
@@ -203,6 +204,7 @@ ADMIN_RULES = [
     ({"GET"}, r"^/trash"),
     ({"POST", "DELETE"}, r"^/trash"),
     ({"GET", "PATCH", "POST"}, r"^/email"),
+    ({"PUT"}, r"^/branding$"),
 ]
 
 # What a Customer account may reach. Everything else in the API is 403.
@@ -228,8 +230,10 @@ def _is_api_path(path: str) -> bool:
     return any(path == prefix or path.startswith(prefix + "/") for prefix in API_PREFIXES)
 
 
-def _is_public(path: str) -> bool:
-    return path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+def _is_public(path: str, method: str = "GET") -> bool:
+    if path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
+        return True
+    return method == "GET" and path in PUBLIC_GET_PATHS
 
 
 def _matches(rules, method: str, path: str) -> bool:
@@ -281,7 +285,7 @@ def _user_from_request(db, request):
 @app.middleware("http")
 async def _auth_middleware(request, call_next):
     path = request.url.path
-    if not _is_api_path(path) or _is_public(path):
+    if not _is_api_path(path) or _is_public(path, request.method):
         return await call_next(request)
 
     db = SessionLocal()
@@ -1157,6 +1161,39 @@ async def two_factor_disable(payload: dict = Body(...), db: Session = Depends(ge
     _audit(db, "auth.2fa.disabled", user.email)
     db.commit()
     return {"enabled": False}
+
+
+@app.get("/branding")
+async def get_branding(db: Session = Depends(get_db)):
+    """Public read of workspace branding so the sign-in page can brand itself."""
+    row = db.query(models.WorkspaceBranding).order_by(models.WorkspaceBranding.id).first()
+    if not row:
+        return {"name": "RAW-Switch", "logo": "", "primary": "#ff9800", "accent": "#182238"}
+    return {
+        "name": row.name or "RAW-Switch",
+        "logo": row.logo or "",
+        "primary": row.primary or "#ff9800",
+        "accent": row.accent or "#182238",
+    }
+
+
+@app.put("/branding")
+async def put_branding(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Administrators persist company branding so every client sees the same logo."""
+    identity = current_user()
+    if identity.get("role") != "Administrator":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    row = db.query(models.WorkspaceBranding).order_by(models.WorkspaceBranding.id).first()
+    if not row:
+        row = models.WorkspaceBranding()
+        db.add(row)
+    row.name = str(payload.get("name") or "RAW-Switch")[:60]
+    row.logo = str(payload.get("logo") or "")[:2_000_000]
+    row.primary = str(payload.get("primary") or "#ff9800")[:30]
+    row.accent = str(payload.get("accent") or "#182238")[:30]
+    _audit(db, "branding.update", identity.get("email") or "system", f"name={row.name}")
+    db.commit()
+    return {"name": row.name, "logo": row.logo, "primary": row.primary, "accent": row.accent}
 
 
 @app.get("/auth/me")

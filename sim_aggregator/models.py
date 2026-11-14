@@ -475,3 +475,17 @@ class LoginChallenge(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
+
+
+
+class WorkspaceBranding(Base):
+    """Company branding (name, logo, colours) served to every client."""
+
+    __tablename__ = "workspace_branding"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=True)
+    logo = Column(Text, nullable=True)
+    primary = Column(String, nullable=True)
+    accent = Column(String, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
