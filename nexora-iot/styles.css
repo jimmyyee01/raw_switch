@@ -417,5 +417,5 @@ body.not-admin [data-billing-rate]{display:none!important}
 .brand .brand-mark{width:160px;height:160px;margin:0;background:transparent;overflow:visible}
 #brandLogo{width:160px;height:160px;object-fit:contain}
 #brandName{position:absolute;left:16px;bottom:12px;font-size:14px;font-weight:700;line-height:1.2;color:#fff;text-align:left;letter-spacing:-.2px}
-.sidebar{padding-top:14px}
+.sidebar{padding-top:0}
 .sidebar-profile{margin-bottom:36px}
