@@ -406,14 +406,14 @@ body.not-admin [data-billing-rate]{display:none!important}
 .auth-brand .brand-mark.auth-logo{width:34px;height:34px;border-radius:10px}
 .auth-brand .brand-mark.auth-logo img{width:34px;height:34px;border-radius:10px}
 .auth-brand span{line-height:1.1}
-
-/* 800x800 system logo on the UI (login + menu bar); favicon stays small */
-.auth-brand{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:30px}
-.auth-brand .brand-mark.auth-logo{width:800px;height:800px;max-width:88vw;background:transparent;display:grid;place-items:center;overflow:visible}
-.auth-brand .brand-mark.auth-logo img{width:800px;height:800px;max-width:88vw;object-fit:contain;border-radius:0;background:transparent}
+/* 160x160 system logo (login + menu bar); favicon stays small */
+.auth-brand{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:28px}
+.auth-brand .brand-mark.auth-logo{width:160px;height:160px;background:transparent;display:grid;place-items:center;overflow:visible}
+.auth-brand .brand-mark.auth-logo img{width:160px;height:160px;object-fit:contain;border-radius:0;background:transparent}
 #authBrandName{font-size:22px !important}
-.auth-card{max-width:940px;width:auto;padding:44px 30px}
-.auth-card h2,.auth-card>p,#loginForm{width:100%;max-width:420px;margin-left:auto;margin-right:auto}
+.auth-card{max-width:420px;width:100%;padding:38px 30px}
 .auth-overlay{overflow:auto}
-#brandLogo{width:800px;height:800px;max-width:none;object-fit:contain}
-.brand-mark:has(#brandLogo){overflow:visible}
+.brand{flex-direction:column;align-items:center;gap:12px;padding:4px 0 26px;text-align:center}
+.brand .brand-mark{width:160px;height:160px;background:transparent;overflow:visible}
+#brandLogo{width:160px;height:160px;object-fit:contain}
+.brand #brandName{font-size:20px;line-height:1.1}
