@@ -37,7 +37,7 @@
       '<div class="branding-grid">',
       '  <form id="brandingForm" class="branding-controls">',
       '    <label class="branding-field">Company name',
-      '      <input name="name" maxlength="60" required placeholder="RAW-Switch">',
+      '      <input name="name" maxlength="60" placeholder="RAW-Switch (optional)">',
       '      <small class="field-help">Shown in the sidebar, sign-in card and browser tab.</small>',
       '    </label>',
       '    <div class="branding-field">',
