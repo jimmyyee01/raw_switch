@@ -271,12 +271,15 @@ function renderBillingGateway() {
   if (form.callbackUrl) form.callbackUrl.value = gateway.callbackUrl || '';
   if (form.ipnId) form.ipnId.value = gateway.ipnId || '';
   if (form.consumerKey) form.consumerKey.value = '';
-  if (form.consumerSecret) form.consumerSecret.value = '';
+  if (form.consumerSecret) {
+    form.consumerSecret.value = '';
+    form.consumerSecret.placeholder = gateway.hasCredentials ? 'Stored — leave blank to keep' : 'Paste your consumer secret';
+  }
   billingSetText(
     '#billingGatewayNote',
     gateway.environment === 'simulated'
       ? 'Simulated mode keeps every test charge on this box - no merchant contract required. Add sandbox or live keys to charge real money.'
-      : `Calling ${gateway.apiBase || 'Pesapal'} · key ${gateway.consumerKeyMasked || 'not set'} · IPN ${gateway.ipnId || 'not registered'}`
+      : `Calling ${gateway.apiBase || 'Pesapal'} · key ${gateway.consumerKeyMasked || 'not set'} · secret ${gateway.consumerSecretMasked || 'not set'} · IPN ${gateway.ipnId || 'not registered'}`
   );
 }
 
