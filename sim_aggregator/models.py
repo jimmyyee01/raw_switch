@@ -193,6 +193,9 @@ class Customer(Base):
     status = Column(String, nullable=False, default="Active")
     notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    sim_addition_fee = Column(Float, nullable=False, default=0)
+    platform_fee_pct = Column(Float, nullable=False, default=0)
+    last_paid_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class Plan(Base):
@@ -488,4 +491,16 @@ class WorkspaceBranding(Base):
     logo = Column(Text, nullable=True)
     primary = Column(String, nullable=True)
     accent = Column(String, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PrepaidPolicy(Base):
+    """Prepaid lifecycle policy: suspend after a grace period, deactivate later."""
+
+    __tablename__ = "prepaid_policy"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    grace_days = Column(Integer, nullable=False, default=15)
+    deactivate_days = Column(Integer, nullable=False, default=16)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

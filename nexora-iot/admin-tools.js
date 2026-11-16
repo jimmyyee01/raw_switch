@@ -299,6 +299,88 @@
     loadTwoFactor();
   }
 
+    /* ---------------- prepaid lifecycle + customer fees ---------------- */
+
+  function buildPrepaidPolicyCard() {
+    var settings = document.getElementById('settings');
+    if (!settings || !isAdmin() || document.getElementById('prepaidPolicyCard')) return;
+    var card = document.createElement('article');
+    card.id = 'prepaidPolicyCard';
+    card.className = 'card email-settings-card';
+    card.innerHTML = '<div class="card-heading"><div><h2>Prepaid lifecycle</h2>' +
+      '<p>Auto-suspend SIMs whose account has not paid, then deactivate them.</p></div>' +
+      '<span class="badge active" id="prepaidPolicyBadge">Loading…</span></div>' +
+      '<div class="twofa-row"><label style="font-size:11px">Grace days<input id="prepaidGrace" type="number" min="1" style="width:80px;margin-left:8px"></label>' +
+      '<label style="font-size:11px">Deactivate days<input id="prepaidDeactivate" type="number" min="1" style="width:80px;margin-left:8px"></label>' +
+      '<label style="font-size:11px"><input id="prepaidEnabled" type="checkbox" style="margin-left:8px"> Enabled</label></div>' +
+      '<div class="twofa-actions" style="margin-top:10px"><button class="btn btn-primary" id="prepaidSave">Save policy</button>' +
+      '<button class="btn btn-secondary" id="prepaidRun">Run sweep now</button></div>' +
+      '<p class="muted" id="prepaidResult" style="margin-top:8px"></p>';
+    settings.appendChild(card);
+    var load = function () {
+      authRequest('/billing/prepaid-policy').then(function (p) {
+        document.getElementById('prepaidGrace').value = p.graceDays;
+        document.getElementById('prepaidDeactivate').value = p.deactivateDays;
+        document.getElementById('prepaidEnabled').checked = !!p.enabled;
+        var b = document.getElementById('prepaidPolicyBadge');
+        b.textContent = p.enabled ? 'Enabled' : 'Disabled';
+        b.className = 'badge ' + (p.enabled ? 'active' : 'inactive');
+      }).catch(function (e) { toast(e.message, 'error'); });
+    };
+    document.getElementById('prepaidSave').addEventListener('click', function () {
+      authRequest('/billing/prepaid-policy', { method: 'PUT', body: JSON.stringify({
+        graceDays: Number(document.getElementById('prepaidGrace').value || 15),
+        deactivateDays: Number(document.getElementById('prepaidDeactivate').value || 16),
+        enabled: document.getElementById('prepaidEnabled').checked
+      }) }).then(function () { toast('Prepaid policy saved'); load(); }).catch(function (e) { toast(e.message, 'error'); });
+    });
+    document.getElementById('prepaidRun').addEventListener('click', function () {
+      authRequest('/billing/apply-prepaid', { method: 'POST' }).then(function (r) {
+        document.getElementById('prepaidResult').textContent = r.enabled === false
+          ? 'Policy disabled - nothing swept'
+          : 'Suspended ' + r.suspended + ' · deactivated ' + r.deactivated;
+        toast('Prepaid sweep complete');
+      }).catch(function (e) { toast(e.message, 'error'); });
+    });
+    load();
+    if (typeof icons === 'function') icons();
+  }
+
+  function buildCustomerFeesCard() {
+    var settings = document.getElementById('settings');
+    if (!settings || !isAdmin() || document.getElementById('customerFeesCard')) return;
+    var card = document.createElement('article');
+    card.id = 'customerFeesCard';
+    card.className = 'card email-settings-card';
+    card.innerHTML = '<div class="card-heading"><div><h2>Customer fees</h2>' +
+      '<p>Pre-set the new SIM addition fee and platform fee per customer.</p></div></div>' +
+      '<div id="customerFeesList" class="stack-list"></div>';
+    settings.appendChild(card);
+    authRequest('/customers').then(function (list) {
+      document.getElementById('customerFeesList').innerHTML = list.map(function (c) {
+        return '<div class="twofa-row" style="border-top:1px solid var(--border);padding-top:10px;flex-wrap:wrap">' +
+          '<div><strong>' + esc(c.name) + '</strong><small>' + (c.sims || 0) + ' SIMs · last paid ' + (c.lastPaidAt ? new Date(c.lastPaidAt).toLocaleDateString() : 'never') + '</small></div>' +
+          '<div class="twofa-actions">' +
+          '<label style="font-size:10px">SIM fee $<input data-cust-fee="' + c.id + '" type="number" step="0.01" min="0" value="' + (c.simAdditionFee || 0) + '" style="width:70px"></label>' +
+          '<label style="font-size:10px">Platform %<input data-cust-pct="' + c.id + '" type="number" step="0.01" min="0" value="' + (c.platformFeePct || 0) + '" style="width:70px"></label>' +
+          '<button class="btn btn-secondary" data-cust-save="' + c.id + '">Save</button>' +
+          '</div></div>';
+      }).join('') || '<p class="muted">No customers yet.</p>';
+      if (typeof icons === 'function') icons();
+    }).catch(function (e) { toast(e.message, 'error'); });
+    card.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-cust-save]');
+      if (!btn) return;
+      var id = btn.dataset.custSave;
+      var fee = document.querySelector('[data-cust-fee="' + id + '"]').value;
+      var pct = document.querySelector('[data-cust-pct="' + id + '"]').value;
+      authRequest('/customers/' + id, { method: 'PATCH', body: JSON.stringify({ simAdditionFee: Number(fee || 0), platformFeePct: Number(pct || 0) }) })
+        .then(function () { toast('Customer fees saved'); })
+        .catch(function (e) { toast(e.message, 'error'); });
+    });
+  }
+
+
   var logsSearch = document.getElementById('logsSearch');
   if (logsSearch) { logsSearch.addEventListener('input', renderLogs); }
   var logsFilter = document.getElementById('logsActionFilter');
@@ -330,11 +412,11 @@
       var result = baseNavigate.apply(this, arguments);
       if (view === 'logs') { loadLogs(); }
       if (view === 'trash') { loadTrash(); }
-      if (view === 'settings') { buildEmailCard(); buildTwoFactorCard(); }
+      if (view === 'settings') { buildEmailCard(); buildTwoFactorCard(); buildPrepaidPolicyCard(); buildCustomerFeesCard(); }
       return result;
     };
   }
 
   var active = document.querySelector('.view.active');
-  if (active && active.id === 'settings') { buildEmailCard(); buildTwoFactorCard(); }
+  if (active && active.id === 'settings') { buildEmailCard(); buildTwoFactorCard(); buildPrepaidPolicyCard(); buildCustomerFeesCard(); }
 })();

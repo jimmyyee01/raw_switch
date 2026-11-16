@@ -44,6 +44,7 @@ from .models import (
     InvoiceLine,
     Payment,
     PaymentGateway,
+    PrepaidPolicy,
     UsageRecord,
 )
 
@@ -1091,6 +1092,10 @@ def _apply_transaction(db: Session, payment: Payment, data: dict) -> Payment:
     if status_code == 1 or description == "COMPLETED":
         payment.status = "completed"
         payment.completed_at = payment.completed_at or _now()
+        if payment.customer:
+            paid_customer = db.query(Customer).filter(func.lower(Customer.name) == func.lower(payment.customer)).first()
+            if paid_customer:
+                paid_customer.last_paid_at = _now()
         _audit(db, "payment.completed", payment.reference,
                f"{payment.amount} {payment.currency}")
     elif status_code in (2, 3) or description in {"FAILED", "REVERSED", "INVALID"}:
@@ -1239,6 +1244,88 @@ async def register_ipn_url(request: Request, db: Session = Depends(get_db)):
 
 
 # --------------------------------------------------------------------------- payments
+
+
+
+# --------------------------------------------------------------------------- prepaid lifecycle
+
+
+def _prepaid_policy(db: Session) -> PrepaidPolicy:
+    policy = db.query(PrepaidPolicy).first()
+    if not policy:
+        policy = PrepaidPolicy()
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+    return policy
+
+
+def _prepaid_policy_payload(policy: PrepaidPolicy) -> dict:
+    return {
+        "enabled": bool(policy.enabled),
+        "graceDays": int(policy.grace_days or 15),
+        "deactivateDays": int(policy.deactivate_days or 16),
+    }
+
+
+def _apply_prepaid_lifecycle(db: Session) -> dict:
+    """Suspend SIMs whose account is past the grace window and deactivate past the deadline."""
+    policy = _prepaid_policy(db)
+    if not policy.enabled:
+        return {"enabled": False, "suspended": 0, "deactivated": 0}
+    now = datetime.utcnow()
+    grace_days = max(1, int(policy.grace_days or 15))
+    deactivate_days = max(grace_days + 1, int(policy.deactivate_days or 16))
+    suspended = deactivated = 0
+    for customer in db.query(Customer).all():
+        reference = customer.last_paid_at or customer.created_at
+        if reference is None:
+            continue
+        if reference.tzinfo is not None:
+            reference = reference.replace(tzinfo=None)
+        days = (now - reference).total_seconds() / 86400.0
+        for device in db.query(Device).filter(Device.customer == customer.name).all():
+            status = str(device.status or "").lower()
+            if status in {"terminated", "deactivated"}:
+                continue
+            if days >= deactivate_days:
+                device.status = "terminated"
+                device.terminated_at = now
+                deactivated += 1
+            elif days >= grace_days and status == "active":
+                device.status = "suspended"
+                suspended += 1
+    db.commit()
+    return {"enabled": True, "suspended": suspended, "deactivated": deactivated}
+
+
+@router.get("/prepaid-policy")
+async def read_prepaid_policy(db: Session = Depends(get_db)):
+    return _prepaid_policy_payload(_prepaid_policy(db))
+
+
+@router.put("/prepaid-policy")
+async def update_prepaid_policy(payload: dict = Body(...), db: Session = Depends(get_db)):
+    policy = _prepaid_policy(db)
+    if "enabled" in payload:
+        policy.enabled = bool(payload.get("enabled"))
+    if "graceDays" in payload:
+        policy.grace_days = max(1, int(payload.get("graceDays") or 15))
+    if "deactivateDays" in payload:
+        policy.deactivate_days = max(1, int(payload.get("deactivateDays") or 16))
+    if policy.deactivate_days <= policy.grace_days:
+        policy.deactivate_days = policy.grace_days + 1
+    _audit(db, "prepaid.policy", "policy", f"enabled={policy.enabled} grace={policy.grace_days} deactivate={policy.deactivate_days}")
+    db.commit()
+    db.refresh(policy)
+    return _prepaid_policy_payload(policy)
+
+
+@router.post("/apply-prepaid")
+async def apply_prepaid_now(db: Session = Depends(get_db)):
+    result = _apply_prepaid_lifecycle(db)
+    _audit(db, "prepaid.sweep", "sweep", f"suspended={result.get('suspended')} deactivated={result.get('deactivated')}")
+    return result
 
 
 @router.post("/payments", status_code=201)

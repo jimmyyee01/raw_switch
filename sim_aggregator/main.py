@@ -217,6 +217,7 @@ CUSTOMER_RULES = [
     ({"GET"}, r"^/sims/(summary|catalog|recent)$"),
     ({"GET"}, r"^/sims/[^/]+$"),
     ({"GET"}, r"^/sims/[^/]+/qr\.svg$"),
+    ({"POST"}, r"^/sims/[^/]+/allocate$"),
     ({"GET"}, r"^/plans$"),
     ({"GET"}, r"^/billing/(summary|invoices|payments|usage|rates)$"),
     ({"GET"}, r"^/billing/(invoices|payments)/\d+$"),
@@ -953,6 +954,23 @@ async def _alert_email_loop():
 async def _start_alert_email_loop():
     asyncio.create_task(_alert_email_loop())
 
+
+async def _prepaid_lifecycle_loop():
+    while True:
+        await asyncio.sleep(3600)
+        db = SessionLocal()
+        try:
+            billing._apply_prepaid_lifecycle(db)
+        except Exception:
+            pass
+        finally:
+            db.close()
+
+
+@app.on_event("startup")
+async def _start_prepaid_lifecycle_loop():
+    asyncio.create_task(_prepaid_lifecycle_loop())
+
 @app.post("/auth/login")
 async def authenticate(request: Request, response: Response, payload: dict = Body(...),
                        db: Session = Depends(get_db)):
@@ -1323,6 +1341,8 @@ async def create_customer(payload: dict = Body(...), db: Session = Depends(get_d
         phone=str(payload.get("phone") or "").strip() or None,
         status=status_value,
         notes=str(payload.get("notes") or "").strip() or None,
+        sim_addition_fee=float(payload.get("simAdditionFee") or 0),
+        platform_fee_pct=float(payload.get("platformFeePct") or 0),
     )
     db.add(customer)
     db.commit()
@@ -1365,6 +1385,10 @@ async def update_customer(customer_id: int, payload: dict = Body(...), db: Sessi
         if status_value not in {"Active", "Suspended"}:
             raise HTTPException(status_code=422, detail="status must be Active or Suspended")
         customer.status = status_value
+    if "simAdditionFee" in payload:
+        customer.sim_addition_fee = float(payload.get("simAdditionFee") or 0)
+    if "platformFeePct" in payload:
+        customer.platform_fee_pct = float(payload.get("platformFeePct") or 0)
 
     devices = db.query(Device).all()
     if customer.name != previous:
@@ -1508,6 +1532,9 @@ def _customer_payload(customer: Customer, devices: list) -> dict:
         "usageMb": round(sum(float(device.usage_mb or 0) for device in owned), 1),
         "dataLimitMb": round(sum(float(device.data_limit_mb or 0) for device in owned), 1),
         "createdAt": customer.created_at.isoformat() if customer.created_at else None,
+        "simAdditionFee": round(float(customer.sim_addition_fee or 0), 2),
+        "platformFeePct": float(customer.platform_fee_pct or 0),
+        "lastPaidAt": customer.last_paid_at.isoformat() if customer.last_paid_at else None,
     }
 
 
@@ -3108,6 +3135,23 @@ async def sim_recent(limit: int = 8, db: Session = Depends(get_db)):
     plans = _plan_map(db)
     return [_sim_detail_payload(device, plans) for device in devices]
 
+
+
+@app.post("/sims/{iccid}/allocate")
+async def sim_allocate(iccid: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Customer allocates a data allowance (MB) to one of their SIMs."""
+    device = db.query(Device).filter(Device.iccid == iccid).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="SIM not found")
+    if is_customer() and str(device.customer or "").lower() != customer_scope().lower():
+        raise HTTPException(status_code=404, detail="SIM not found")
+    data_mb = float(payload.get("dataMb") or 0)
+    if data_mb <= 0:
+        raise HTTPException(status_code=422, detail="dataMb must be greater than zero")
+    device.data_limit_mb = data_mb
+    _audit(db, "sim.allocate", iccid, f"{data_mb} MB")
+    db.commit()
+    return _device_payload(device)
 
 
 @app.post("/sims/provision", status_code=201)
