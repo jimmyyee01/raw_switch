@@ -930,6 +930,19 @@ async def void_invoice(invoice_id: int, payload: dict = Body(default={}), db: Se
 # --------------------------------------------------------------------------- pesapal client
 
 
+def _pesapal_error(payload: dict | None, fallback: str = "unknown error") -> str:
+    """Extract the most useful text from a Pesapal error envelope."""
+    error = (payload or {}).get("error")
+    if isinstance(error, dict):
+        return str(error.get("code") or error.get("message") or error.get("error_type") or error)
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    message = (payload or {}).get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return fallback
+
+
 async def _pesapal_token(gateway: PaymentGateway) -> str:
     """Fetch (and cache) a Pesapal bearer token. Tokens are valid for 5 minutes."""
     base = PESAPAL_BASES.get(gateway.environment)
@@ -952,7 +965,7 @@ async def _pesapal_token(gateway: PaymentGateway) -> str:
         raise HTTPException(status_code=502, detail=f"Pesapal authentication unreachable: {error}") from error
     token = (payload or {}).get("token")
     if not ok or not token:
-        message = (payload or {}).get("message") or (payload or {}).get("error") or "no token returned"
+        message = _pesapal_error(payload, "no token returned")
         raise HTTPException(status_code=502, detail=f"Pesapal authentication failed: {message}")
     _TOKEN_CACHE[cache_key] = (token, time.time() + 280)
     return token
@@ -978,7 +991,7 @@ async def _pesapal_request(
     except aiohttp.ClientError as error:
         raise HTTPException(status_code=502, detail=f"Pesapal request failed: {error}") from error
     if status >= 400:
-        message = (data or {}).get("message") or (data or {}).get("error") or f"HTTP {status}"
+        message = _pesapal_error(data, f"HTTP {status}")
         raise HTTPException(status_code=502, detail=f"Pesapal {path} rejected: {message}")
     return data or {}
 
