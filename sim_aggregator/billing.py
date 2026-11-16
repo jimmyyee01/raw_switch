@@ -793,6 +793,9 @@ async def create_invoice(payload: dict = Body(...), db: Session = Depends(get_db
         raise HTTPException(status_code=422, detail="platformFeePct must be a number") from error
     if platform_fee_pct < 0 or platform_fee_pct > 100:
         raise HTTPException(status_code=422, detail="platformFeePct must be between 0 and 100")
+    registry_customer = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
+    if registry_customer and float(registry_customer.platform_fee_pct or 0) > 0 and not payload.get("platformFeePct"):
+        platform_fee_pct = float(registry_customer.platform_fee_pct or 0)
     try:
         raw_due = payload.get("dueDays", 7)
         due_days = int(7 if raw_due in (None, "") else raw_due)
