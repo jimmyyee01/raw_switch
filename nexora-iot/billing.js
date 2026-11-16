@@ -264,7 +264,7 @@ function renderBillingGateway() {
   if (card) card.hidden = !billingAdmin();
   const form = document.querySelector('#billingGatewayForm');
   if (!form) return;
-  form.environment.value = gateway.environment || 'simulated';
+  form.environment.value = gateway.environment || 'live';
   if (form.currency) form.currency.value = gateway.currency || 'USD';
   if (form.fxRate) form.fxRate.value = gateway.fxRate || 1;
   if (form.ipnUrl) form.ipnUrl.value = gateway.ipnUrl || '';
@@ -547,7 +547,7 @@ async function saveBillingGateway(event) {
   const form = event.target;
   const data = new FormData(form);
   const payload = {
-    environment: String(data.get('environment') || 'simulated'),
+    environment: String(data.get('environment') || 'live'),
     currency: String(data.get('currency') || 'USD'),
     fxRate: Number(data.get('fxRate') || 1),
     ipnUrl: String(data.get('ipnUrl') || '').trim(),
