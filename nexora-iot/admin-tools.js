@@ -363,6 +363,7 @@
           '<div class="twofa-actions">' +
           '<label style="font-size:10px">SIM fee $<input data-cust-fee="' + c.id + '" type="number" step="0.01" min="0" value="' + (c.simAdditionFee || 0) + '" style="width:70px"></label>' +
           '<label style="font-size:10px">Platform %<input data-cust-pct="' + c.id + '" type="number" step="0.01" min="0" value="' + (c.platformFeePct || 0) + '" style="width:70px"></label>' +
+          '<label style="font-size:10px">Discount %<input data-cust-disc="' + c.id + '" type="number" step="0.01" min="0" max="100" value="' + (c.discountPct || 0) + '" style="width:70px"></label>' +
           '<button class="btn btn-secondary" data-cust-save="' + c.id + '">Save</button>' +
           '</div></div>';
       }).join('') || '<p class="muted">No customers yet.</p>';
@@ -374,10 +375,84 @@
       var id = btn.dataset.custSave;
       var fee = document.querySelector('[data-cust-fee="' + id + '"]').value;
       var pct = document.querySelector('[data-cust-pct="' + id + '"]').value;
-      authRequest('/customers/' + id, { method: 'PATCH', body: JSON.stringify({ simAdditionFee: Number(fee || 0), platformFeePct: Number(pct || 0) }) })
+      var disc = document.querySelector('[data-cust-disc="' + id + '"]').value;
+      authRequest('/customers/' + id, { method: 'PATCH', body: JSON.stringify({ simAdditionFee: Number(fee || 0), platformFeePct: Number(pct || 0), discountPct: Number(disc || 0) }) })
         .then(function () { toast('Customer fees saved'); })
         .catch(function (e) { toast(e.message, 'error'); });
     });
+  }
+
+
+    /* ---------------- platform pricing + discount tiers ---------------- */
+
+  function buildPlatformPricingCard() {
+    var settings = document.getElementById('settings');
+    if (!settings || !isAdmin() || document.getElementById('platformPricingCard')) return;
+    var card = document.createElement('article');
+    card.id = 'platformPricingCard';
+    card.className = 'card email-settings-card';
+    card.innerHTML = '<div class="card-heading"><div><h2>Platform pricing</h2>' +
+      '<p>Monthly SIM fee and one-time activation fee applied across the platform.</p></div></div>' +
+      '<div class="twofa-row"><label style="font-size:11px">Monthly SIM fee $<input id="pricingMonthly" type="number" step="0.01" min="0" style="width:90px;margin-left:8px"></label>' +
+      '<label style="font-size:11px">Activation fee $<input id="pricingActivation" type="number" step="0.01" min="0" style="width:90px;margin-left:8px"></label>' +
+      '<button class="btn btn-primary" id="pricingSave">Save</button></div>';
+    settings.appendChild(card);
+    var load = function () {
+      authRequest('/billing/platform-pricing').then(function (p) {
+        document.getElementById('pricingMonthly').value = p.monthlySimFee;
+        document.getElementById('pricingActivation').value = p.activationFee;
+      }).catch(function (e) { toast(e.message, 'error'); });
+    };
+    document.getElementById('pricingSave').addEventListener('click', function () {
+      authRequest('/billing/platform-pricing', { method: 'PUT', body: JSON.stringify({
+        monthlySimFee: Number(document.getElementById('pricingMonthly').value || 0),
+        activationFee: Number(document.getElementById('pricingActivation').value || 0)
+      }) }).then(function () { toast('Platform pricing saved'); load(); }).catch(function (e) { toast(e.message, 'error'); });
+    });
+    load();
+    if (typeof icons === 'function') icons();
+  }
+
+  function buildDiscountTiersCard() {
+    var settings = document.getElementById('settings');
+    if (!settings || !isAdmin() || document.getElementById('discountTiersCard')) return;
+    var card = document.createElement('article');
+    card.id = 'discountTiersCard';
+    card.className = 'card email-settings-card';
+    card.innerHTML = '<div class="card-heading"><div><h2>Volume discounts</h2>' +
+      '<p>Discount by number of SIMs a customer has (e.g. 50 SIMs gives 5%).</p></div></div>' +
+      '<div id="discountTierList" class="stack-list"></div>' +
+      '<div class="twofa-actions" style="margin-top:10px"><input id="tierMin" type="number" min="0" placeholder="Min SIMs" style="width:100px">' +
+      '<input id="tierPct" type="number" min="0" max="100" placeholder="Discount %" style="width:100px">' +
+      '<button class="btn btn-primary" id="tierAdd">Add tier</button></div>';
+    settings.appendChild(card);
+    function render() {
+      authRequest('/billing/discount-tiers').then(function (tiers) {
+        document.getElementById('discountTierList').innerHTML = tiers.map(function (t, i) {
+          return '<div class="twofa-row" style="border-top:1px solid var(--border);padding-top:8px"><div><strong>' + t.minSims + '+ SIMs</strong><small>' + t.discountPct + '% discount</small></div>' +
+            '<button class="btn btn-secondary" data-tier-remove="' + i + '">Remove</button></div>';
+        }).join('') || '<p class="muted">No discount tiers yet.</p>';
+        if (typeof icons === 'function') icons();
+      }).catch(function (e) { toast(e.message, 'error'); });
+    }
+    document.getElementById('tierAdd').addEventListener('click', function () {
+      var min = Number(document.getElementById('tierMin').value || 0);
+      var pct = Number(document.getElementById('tierPct').value || 0);
+      authRequest('/billing/discount-tiers').then(function (tiers) {
+        tiers.push({ minSims: min, discountPct: pct });
+        return authRequest('/billing/discount-tiers', { method: 'PUT', body: JSON.stringify({ tiers: tiers }) });
+      }).then(function () { toast('Discount tier saved'); render(); }).catch(function (e) { toast(e.message, 'error'); });
+    });
+    card.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-tier-remove]');
+      if (!btn) return;
+      var idx = Number(btn.dataset.tierRemove);
+      authRequest('/billing/discount-tiers').then(function (tiers) {
+        tiers.splice(idx, 1);
+        return authRequest('/billing/discount-tiers', { method: 'PUT', body: JSON.stringify({ tiers: tiers }) });
+      }).then(function () { render(); }).catch(function (e) { toast(e.message, 'error'); });
+    });
+    render();
   }
 
 
@@ -412,11 +487,11 @@
       var result = baseNavigate.apply(this, arguments);
       if (view === 'logs') { loadLogs(); }
       if (view === 'trash') { loadTrash(); }
-      if (view === 'settings') { buildEmailCard(); buildTwoFactorCard(); buildPrepaidPolicyCard(); buildCustomerFeesCard(); }
+      if (view === 'settings') { buildEmailCard(); buildTwoFactorCard(); buildPrepaidPolicyCard(); buildCustomerFeesCard(); buildPlatformPricingCard(); buildDiscountTiersCard(); }
       return result;
     };
   }
 
   var active = document.querySelector('.view.active');
-  if (active && active.id === 'settings') { buildEmailCard(); buildTwoFactorCard(); buildPrepaidPolicyCard(); buildCustomerFeesCard(); }
+  if (active && active.id === 'settings') { buildEmailCard(); buildTwoFactorCard(); buildPrepaidPolicyCard(); buildCustomerFeesCard(); buildPlatformPricingCard(); buildDiscountTiersCard(); }
 })();

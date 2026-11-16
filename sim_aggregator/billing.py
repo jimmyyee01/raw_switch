@@ -40,10 +40,13 @@ from .models import (
     Customer,
     DataRate,
     Device,
+    DiscountTier,
+    FeeCharge,
     Invoice,
     InvoiceLine,
     Payment,
     PaymentGateway,
+    PlatformPricing,
     PrepaidPolicy,
     UsageRecord,
 )
@@ -1329,6 +1332,130 @@ async def apply_prepaid_now(db: Session = Depends(get_db)):
     result = _apply_prepaid_lifecycle(db)
     _audit(db, "prepaid.sweep", "sweep", f"suspended={result.get('suspended')} deactivated={result.get('deactivated')}")
     return result
+
+
+
+# --------------------------------------------------------------------------- platform pricing + fees
+
+
+def _platform_pricing(db: Session) -> PlatformPricing:
+    row = db.query(PlatformPricing).first()
+    if not row:
+        row = PlatformPricing()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return row
+
+
+def _customer_discount_pct(db: Session, customer: str) -> float:
+    """Effective discount = max(per-customer agreement discount, volume-tier discount)."""
+    registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
+    agreement = float(registry.discount_pct or 0) if registry else 0.0
+    sim_count = db.query(Device).filter(Device.customer == customer).count()
+    volume = 0.0
+    for tier in db.query(DiscountTier).order_by(DiscountTier.min_sims).all():
+        if sim_count >= int(tier.min_sims or 0):
+            volume = max(volume, float(tier.discount_pct or 0))
+    return max(agreement, volume)
+
+
+def record_activation_fee(db: Session, customer: str, sim_iccid: str | None = None) -> None:
+    """Charge a one-time activation fee when a SIM is added or a deactivated SIM is re-activated."""
+    if not customer or customer == "Unassigned":
+        return
+    pricing = _platform_pricing(db)
+    registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
+    addition = float(registry.sim_addition_fee or 0) if registry else 0.0
+    discount = _customer_discount_pct(db, customer)
+    gross = float(pricing.activation_fee or 0) + addition
+    net = round(gross * (1 - discount / 100.0), 2)
+    if net > 0:
+        db.add(FeeCharge(
+            customer=customer,
+            charge_type="activation",
+            amount=net,
+            sim_iccid=sim_iccid,
+            description=f"SIM activation fee (base {gross:g}{(' after ' + str(round(discount, 1)) + '% discount') if discount else ''})",
+        ))
+
+
+def _fee_summary(db: Session, customer: str) -> dict:
+    pricing = _platform_pricing(db)
+    sim_count = db.query(Device).filter(Device.customer == customer).count()
+    discount = _customer_discount_pct(db, customer)
+    monthly = sim_count * float(pricing.monthly_sim_fee or 0)
+    return {
+        "customer": customer,
+        "simCount": sim_count,
+        "monthlySimFee": float(pricing.monthly_sim_fee or 0),
+        "activationFee": float(pricing.activation_fee or 0),
+        "discountPct": round(discount, 2),
+        "monthlyTotal": round(monthly, 2),
+        "monthlyAfterDiscount": round(monthly * (1 - discount / 100.0), 2),
+    }
+
+
+@router.get("/platform-pricing")
+async def read_platform_pricing(db: Session = Depends(get_db)):
+    p = _platform_pricing(db)
+    return {"monthlySimFee": float(p.monthly_sim_fee or 0), "activationFee": float(p.activation_fee or 0)}
+
+
+@router.put("/platform-pricing")
+async def update_platform_pricing(payload: dict = Body(...), db: Session = Depends(get_db)):
+    p = _platform_pricing(db)
+    if "monthlySimFee" in payload:
+        p.monthly_sim_fee = float(payload.get("monthlySimFee") or 0)
+    if "activationFee" in payload:
+        p.activation_fee = float(payload.get("activationFee") or 0)
+    _audit(db, "pricing.update", "platform", f"monthly={p.monthly_sim_fee} activation={p.activation_fee}")
+    db.commit()
+    db.refresh(p)
+    return {"monthlySimFee": float(p.monthly_sim_fee or 0), "activationFee": float(p.activation_fee or 0)}
+
+
+@router.get("/discount-tiers")
+async def read_discount_tiers(db: Session = Depends(get_db)):
+    return [{"minSims": int(t.min_sims or 0), "discountPct": float(t.discount_pct or 0)}
+            for t in db.query(DiscountTier).order_by(DiscountTier.min_sims).all()]
+
+
+@router.put("/discount-tiers")
+async def update_discount_tiers(payload: dict = Body(...), db: Session = Depends(get_db)):
+    tiers = payload.get("tiers")
+    if not isinstance(tiers, list):
+        raise HTTPException(status_code=422, detail="tiers must be an array")
+    db.query(DiscountTier).delete()
+    for item in tiers:
+        db.add(DiscountTier(
+            min_sims=max(0, int(item.get("minSims") or 0)),
+            discount_pct=max(0.0, min(100.0, float(item.get("discountPct") or 0))),
+        ))
+    db.commit()
+    _audit(db, "pricing.tiers", "discounts", f"{len(tiers)} tiers")
+    return [{"minSims": int(t.min_sims or 0), "discountPct": float(t.discount_pct or 0)}
+            for t in db.query(DiscountTier).order_by(DiscountTier.min_sims).all()]
+
+
+@router.get("/fee-summary")
+async def fee_summary(customer: str = Query(...), db: Session = Depends(get_db)):
+    return _fee_summary(db, customer)
+
+
+@router.get("/fee-charges")
+async def list_fee_charges(customer: str | None = Query(default=None), db: Session = Depends(get_db)):
+    if is_customer():
+        customer = customer_scope()
+    q = db.query(FeeCharge)
+    if customer:
+        q = q.filter(FeeCharge.customer == customer)
+    return [{
+        "id": c.id, "customer": c.customer, "type": c.charge_type,
+        "amount": round(float(c.amount or 0), 2), "simIccid": c.sim_iccid,
+        "description": c.description,
+        "createdAt": c.created_at.isoformat() if c.created_at else None,
+    } for c in q.order_by(FeeCharge.id.desc()).limit(200)]
 
 
 @router.post("/payments", status_code=201)

@@ -205,6 +205,10 @@ ADMIN_RULES = [
     ({"POST", "DELETE"}, r"^/trash"),
     ({"GET", "PATCH", "POST"}, r"^/email"),
     ({"PUT"}, r"^/branding$"),
+    ({"PUT", "POST"}, r"^/billing/prepaid-policy$"),
+    ({"POST"}, r"^/billing/apply-prepaid$"),
+    ({"PUT"}, r"^/billing/platform-pricing$"),
+    ({"PUT"}, r"^/billing/discount-tiers$"),
 ]
 
 # What a Customer account may reach. Everything else in the API is 403.
@@ -220,6 +224,8 @@ CUSTOMER_RULES = [
     ({"POST"}, r"^/sims/[^/]+/allocate$"),
     ({"GET"}, r"^/plans$"),
     ({"GET"}, r"^/billing/(summary|invoices|payments|usage|rates)$"),
+    ({"GET"}, r"^/billing/fee-summary$"),
+    ({"GET"}, r"^/billing/fee-charges$"),
     ({"GET"}, r"^/billing/(invoices|payments)/\d+$"),
     ({"POST"}, r"^/billing/payments$"),
     ({"POST"}, r"^/billing/payments/\d+/cancel$"),
@@ -1343,6 +1349,7 @@ async def create_customer(payload: dict = Body(...), db: Session = Depends(get_d
         notes=str(payload.get("notes") or "").strip() or None,
         sim_addition_fee=float(payload.get("simAdditionFee") or 0),
         platform_fee_pct=float(payload.get("platformFeePct") or 0),
+        discount_pct=float(payload.get("discountPct") or 0),
     )
     db.add(customer)
     db.commit()
@@ -1389,6 +1396,8 @@ async def update_customer(customer_id: int, payload: dict = Body(...), db: Sessi
         customer.sim_addition_fee = float(payload.get("simAdditionFee") or 0)
     if "platformFeePct" in payload:
         customer.platform_fee_pct = float(payload.get("platformFeePct") or 0)
+    if "discountPct" in payload:
+        customer.discount_pct = float(payload.get("discountPct") or 0)
 
     devices = db.query(Device).all()
     if customer.name != previous:
@@ -1534,6 +1543,7 @@ def _customer_payload(customer: Customer, devices: list) -> dict:
         "createdAt": customer.created_at.isoformat() if customer.created_at else None,
         "simAdditionFee": round(float(customer.sim_addition_fee or 0), 2),
         "platformFeePct": float(customer.platform_fee_pct or 0),
+        "discountPct": float(customer.discount_pct or 0),
         "lastPaidAt": customer.last_paid_at.isoformat() if customer.last_paid_at else None,
     }
 
@@ -1741,6 +1751,8 @@ async def provision_inventory(payload: dict = Body(...), db: Session = Depends(g
     db.add(device)
     db.commit()
     db.refresh(device)
+    billing.record_activation_fee(db, device.customer, device.iccid)
+    db.commit()
     return _device_payload(device)
 
 
@@ -3300,6 +3312,8 @@ async def sim_lifecycle(iccid: str, payload: dict = Body(...), db: Session = Dep
         device.activated_at = device.activated_at or now
         device.terminated_at = None
         device.profile_state = "released" if device.activation_code else device.profile_state
+        if current == "terminated":
+            billing.record_activation_fee(db, device.customer, device.iccid)
     if rule["result"] == "suspended":
         device.profile_state = "suspended"
     if rule["result"] == "terminated":

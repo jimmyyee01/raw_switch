@@ -195,6 +195,7 @@ class Customer(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     sim_addition_fee = Column(Float, nullable=False, default=0)
     platform_fee_pct = Column(Float, nullable=False, default=0)
+    discount_pct = Column(Float, nullable=False, default=0)
     last_paid_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -504,3 +505,38 @@ class PrepaidPolicy(Base):
     grace_days = Column(Integer, nullable=False, default=15)
     deactivate_days = Column(Integer, nullable=False, default=16)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PlatformPricing(Base):
+    """Global platform pricing: monthly SIM fee and one-time activation fee."""
+
+    __tablename__ = "platform_pricing"
+
+    id = Column(Integer, primary_key=True, index=True)
+    monthly_sim_fee = Column(Float, nullable=False, default=0)
+    activation_fee = Column(Float, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DiscountTier(Base):
+    """Volume discount: customers with >= min_sims receive discount_pct."""
+
+    __tablename__ = "discount_tiers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    min_sims = Column(Integer, nullable=False, default=0)
+    discount_pct = Column(Float, nullable=False, default=0)
+
+
+class FeeCharge(Base):
+    """Ledger of one-time and monthly platform fees charged to a customer."""
+
+    __tablename__ = "fee_charges"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer = Column(String, nullable=False, index=True)
+    charge_type = Column(String, nullable=False)  # activation | monthly
+    amount = Column(Float, nullable=False, default=0)
+    sim_iccid = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
