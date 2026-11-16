@@ -1023,7 +1023,10 @@ async def _submit_order(gateway: PaymentGateway, payment: Payment, base: str) ->
     """Create the Pesapal order and return {order_tracking_id, redirect_url}."""
     if not gateway.ipn_id:
         await _register_ipn(gateway, base)
-    first, _, last = (payment.payer_name or "RAW-Switch Customer").partition(" ")
+    parts = (payment.payer_name or "RAW-Switch Customer").split()
+    first = parts[0] if parts else "RAW-Switch"
+    last = parts[-1] if len(parts) >= 2 else "Customer"
+    middle = " ".join(parts[1:-1]) if len(parts) >= 3 else "-"
     body = {
         "id": payment.reference,
         "currency": payment.currency,
@@ -1039,9 +1042,9 @@ async def _submit_order(gateway: PaymentGateway, payment: Payment, base: str) ->
             "email_address": payment.payer_email or "",
             "phone_number": payment.payer_phone or "",
             "country_code": os.getenv("PESAPAL_COUNTRY_CODE", "UG"),
-            "first_name": first or "RAW-Switch",
-            "middle_name": "",
-            "last_name": last or "Customer",
+            "first_name": first,
+            "middle_name": middle,
+            "last_name": last,
             "line_1": "",
             "line_2": "",
             "city": "",
