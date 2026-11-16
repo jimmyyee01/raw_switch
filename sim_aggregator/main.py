@@ -207,6 +207,7 @@ ADMIN_RULES = [
     ({"PUT"}, r"^/branding$"),
     ({"PUT", "POST"}, r"^/billing/prepaid-policy$"),
     ({"POST"}, r"^/billing/apply-prepaid$"),
+    ({"POST"}, r"^/billing/apply-monthly$"),
     ({"PUT"}, r"^/billing/platform-pricing$"),
     ({"PUT"}, r"^/billing/discount-tiers$"),
 ]
@@ -967,6 +968,7 @@ async def _prepaid_lifecycle_loop():
         db = SessionLocal()
         try:
             billing._apply_prepaid_lifecycle(db)
+            billing._apply_monthly_fees(db)
         except Exception:
             pass
         finally:
@@ -1796,6 +1798,7 @@ async def bulk_provision_inventory(payload: dict = Body(...), db: Session = Depe
         )
         db.add(device)
         db.flush()
+        billing.record_activation_fee(db, device.customer, device.iccid)
         results.append({"row": index, "iccid": iccid, "status": "created", "device": _device_payload(device)})
     db.commit()
     created = sum(result["status"] == "created" for result in results)
@@ -3259,6 +3262,7 @@ async def sim_provision(payload: dict = Body(...), db: Session = Depends(get_db)
         )
         db.add(device)
         db.flush()
+        billing.record_activation_fee(db, device.customer, device.iccid)
         created.append(device)
 
     _audit(db, "sim.provision", device_name, f"{entry['key']} x{quantity} customer={customer}")

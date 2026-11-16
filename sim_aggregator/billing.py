@@ -1458,6 +1458,42 @@ async def list_fee_charges(customer: str | None = Query(default=None), db: Sessi
     } for c in q.order_by(FeeCharge.id.desc()).limit(200)]
 
 
+
+def _apply_monthly_fees(db: Session) -> dict:
+    """Bill each customer's monthly SIM fee once per calendar month."""
+    pricing = _platform_pricing(db)
+    if float(pricing.monthly_sim_fee or 0) <= 0:
+        return {"billed": 0, "customers": 0, "month": None, "disabled": True}
+    key = _now().strftime("%Y-%m")
+    if pricing.last_monthly_billing == key:
+        return {"billed": 0, "customers": 0, "month": key, "alreadyBilled": True}
+    customers = db.query(Customer).all()
+    billed = 0
+    for customer in customers:
+        sim_count = db.query(Device).filter(Device.customer == customer.name).count()
+        if sim_count == 0:
+            continue
+        discount = _customer_discount_pct(db, customer.name)
+        amount = round(sim_count * float(pricing.monthly_sim_fee) * (1 - discount / 100.0), 2)
+        if amount > 0:
+            db.add(FeeCharge(
+                customer=customer.name,
+                charge_type="monthly",
+                amount=amount,
+                description=f"Monthly SIM fee for {key} ({sim_count} SIMs{(' at ' + str(round(discount, 1)) + '% discount') if discount else ''})",
+            ))
+            billed += 1
+    pricing.last_monthly_billing = key
+    db.commit()
+    _audit(db, "prepaid.monthly", "monthly", f"month={key} billed={billed}")
+    return {"billed": billed, "customers": len(customers), "month": key}
+
+
+@router.post("/apply-monthly")
+async def apply_monthly_now(db: Session = Depends(get_db)):
+    return _apply_monthly_fees(db)
+
+
 @router.post("/payments", status_code=201)
 async def create_payment(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
     """Start a Pesapal checkout for an invoice balance, or a prepaid top-up."""

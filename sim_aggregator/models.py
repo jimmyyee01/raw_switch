@@ -515,6 +515,7 @@ class PlatformPricing(Base):
     id = Column(Integer, primary_key=True, index=True)
     monthly_sim_fee = Column(Float, nullable=False, default=0)
     activation_fee = Column(Float, nullable=False, default=0)
+    last_monthly_billing = Column(String, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
