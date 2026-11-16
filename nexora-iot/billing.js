@@ -338,6 +338,15 @@ function populateBillingSelects() {
     if (current) customerSelect.value = current;
     else if (!billingAdmin() && billingScope()) customerSelect.value = billingScope();
   }
+  const payCustomer = document.querySelector('#billingPayCustomer');
+  if (payCustomer) {
+    const current = payCustomer.value;
+    payCustomer.innerHTML = '<option value="">Select a customer…</option>' +
+      billingState.customers.map((customer) => `<option value="${billingEsc(customer.name)}">${billingEsc(customer.name)}</option>`).join('');
+    if (current) payCustomer.value = current;
+    else if (!billingAdmin() && billingScope()) payCustomer.value = billingScope();
+  }
+  refreshPayCustomerVisibility();
   const payInvoice = document.querySelector('#billingPayInvoice');
   if (payInvoice) {
     const current = payInvoice.value;
@@ -388,9 +397,12 @@ async function submitBillingPayment(event) {
   if (invoiceId) {
     payload.invoiceId = Number(invoiceId);
   } else {
-    const picker = document.querySelector('#billingCustomerSelect');
-    payload.customer =
-      billingScope() || (picker && picker.value) || (currentUser && currentUser.customerName) || 'Unassigned';
+    const customer = billingScope() || String(data.get('customer') || '').trim();
+    if (!customer) {
+      toast('Select a customer for the top-up', 'error');
+      return;
+    }
+    payload.customer = customer;
   }
   const amount = String(data.get('amountUsd') || '').trim();
   if (amount) payload.amountUsd = Number(amount);
@@ -593,6 +605,12 @@ async function registerBillingIpn() {
 
 /* ------------------------------------------------------------------ wiring */
 
+function refreshPayCustomerVisibility() {
+  const field = document.querySelector('#billingPayCustomerField');
+  const invoice = document.querySelector('#billingPayInvoice');
+  if (field && invoice) field.hidden = billingAdmin() ? Boolean(invoice.value) : true;
+}
+
 function billingOn(selector, event, handler) {
   const node = document.querySelector(selector);
   if (node) node.addEventListener(event, handler);
@@ -608,6 +626,7 @@ billingOn('#billingPayForm', 'submit', submitBillingPayment);
 billingOn('#billingGatewayForm', 'submit', saveBillingGateway);
 billingOn('#billingGatewayTest', 'click', testBillingGateway);
 billingOn('#billingGatewayIpn', 'click', registerBillingIpn);
+billingOn('#billingPayInvoice', 'change', refreshPayCustomerVisibility);
 
 document.addEventListener('click', async (event) => {
   const rate = event.target.closest('[data-billing-rate]');
