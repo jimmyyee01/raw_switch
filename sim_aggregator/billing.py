@@ -936,7 +936,7 @@ def _pesapal_error(payload: dict | None, fallback: str = "unknown error") -> str
     """Extract the most useful text from a Pesapal error envelope."""
     error = (payload or {}).get("error")
     if isinstance(error, dict):
-        return str(error.get("code") or error.get("message") or error.get("error_type") or error)
+        return str(error.get("message") or error.get("code") or error.get("error_type") or error)
     if isinstance(error, str) and error.strip():
         return error.strip()
     message = (payload or {}).get("message")
