@@ -25,7 +25,7 @@
   };
 
   var DEFAULT_PERMISSIONS = {
-    Customer: ['dashboard', 'sims', 'data', 'reports', 'billing', 'team'],
+    Customer: ['dashboard', 'sims', 'data', 'reports', 'team'],
     User: ['dashboard', 'sims', 'data', 'reports'],
     Viewer: ['dashboard', 'reports']
   };
@@ -57,6 +57,7 @@
     document.querySelectorAll('.nav-item[data-view]').forEach(function (item) {
       var permission = VIEW_PERMISSION[item.dataset.view];
       var allowed = can(permission);
+      if (currentUser && currentUser.role === 'Customer' && item.dataset.view === 'billing') { allowed = false; }
       item.style.display = allowed ? '' : 'none';
       item.setAttribute('aria-hidden', allowed ? 'false' : 'true');
     });
@@ -103,7 +104,7 @@
       var input = label.querySelector('input');
       if (!input) { return; }
       var adminOnly = input.value === 'customers' || input.value === 'settings';
-      var hide = customer && adminOnly;
+      var hide = customer && (adminOnly || input.value === 'billing');
       label.style.display = hide ? 'none' : '';
       if (hide) { input.checked = false; }
     });
@@ -124,7 +125,7 @@
       document.querySelectorAll('.nav-item[data-view]'),
       function (item) { return item.style.display !== 'none'; }
     );
-    return first ? first.dataset.view : 'billing';
+    return first ? first.dataset.view : 'customer-dashboard';
   }
 
   if (typeof navigate === 'function') {
