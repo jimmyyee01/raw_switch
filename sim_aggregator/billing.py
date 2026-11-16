@@ -266,7 +266,9 @@ def _gateway_payload(db: Session, gateway: PaymentGateway, request: Request | No
         "consumerKeyMasked": _mask(gateway.consumer_key),
         "consumerSecretMasked": _mask(gateway.consumer_secret),
         "hasCredentials": configured,
-        "ipnId": gateway.ipn_id,
+        "ipnId": (gateway.ipn_id
+                  if gateway.environment == "simulated" or gateway.ipn_id != "SIMULATED-IPN"
+                  else None),
         "ipnUrl": _public_url(request, gateway.ipn_url, "/billing/pesapal/ipn"),
         "callbackUrl": _public_url(request, gateway.callback_url, "/billing/pesapal/callback"),
         "currency": gateway.currency,
@@ -1142,6 +1144,8 @@ async def update_gateway(request: Request, payload: dict = Body(...), db: Sessio
         if environment not in {"simulated", "sandbox", "live"}:
             raise HTTPException(status_code=422, detail="environment must be simulated, sandbox or live")
         gateway.environment = environment
+        if gateway.environment != "simulated" and gateway.ipn_id == "SIMULATED-IPN":
+            gateway.ipn_id = None
     if "currency" in payload:
         currency = str(payload.get("currency") or "").strip().upper()
         if currency not in PAYMENT_CURRENCIES:
