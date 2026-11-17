@@ -1547,7 +1547,10 @@ def _wallet_move(db: Session, customer: str, txn_type: str, amount: float, descr
 
 
 def _data_quote(db: Session, customer: str, data_gb: float) -> dict:
-    rate_per_mb = float(FALLBACK_RATE["price_per_mb"])
+    pooled = db.query(DataRate).filter(
+        func.lower(DataRate.name) == "pooled data", DataRate.is_active.is_(True)
+    ).first()
+    rate_per_mb = float(pooled.price_per_mb or 0) if pooled else float(FALLBACK_RATE["price_per_mb"])
     registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
     platform_pct = float(registry.platform_fee_pct or 0) if registry else 0.0
     discount = _customer_discount_pct(db, customer)
