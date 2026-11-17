@@ -1055,7 +1055,7 @@ def _provision_sim_order(db, payment):
                f"{changed} SIM(s) {('reactivated' if meta.get('reactivate') else 'renewed')} {months} month(s)")
         return
     paid_until = datetime.utcnow() + timedelta(days=months * 30)
-    plan = SIM_STUDIO_DEFAULT_PLAN
+    plan = str(meta.get("plan") or "").strip()
     for index in range(quantity):
         device = Device(
             iccid=_allocate_iccid(db),
@@ -1064,8 +1064,8 @@ def _provision_sim_order(db, payment):
             network_tech="4G",
             customer=payment.customer,
             region="Global",
-            data_plan=plan,
-            data_limit_mb=_plan_allowance(db, plan),
+            data_plan=plan or None,
+            data_limit_mb=_plan_allowance(db, plan) if plan else 0.0,
             roaming_enabled=True,
             status="active",
             paid_until=paid_until,
@@ -1888,8 +1888,8 @@ async def provision_inventory(payload: dict = Body(...), db: Session = Depends(g
     if db.query(Device).filter(Device.iccid == iccid).first():
         raise HTTPException(status_code=409, detail="ICCID already exists")
     sim_type = payload.get("type", "IoT SIM")
-    plan = str(payload.get("dataPlan", "500 MB / month") or "").strip()
-    if not _plan_row(db, plan):
+    plan = str(payload.get("dataPlan") or "").strip()
+    if plan and not _plan_row(db, plan):
         raise HTTPException(status_code=422, detail=f"Unknown data plan '{plan}'. Choose one of: {', '.join(_plan_names(db))}")
     device = Device(
         iccid=iccid,
@@ -1898,8 +1898,8 @@ async def provision_inventory(payload: dict = Body(...), db: Session = Depends(g
         network_tech=payload.get("networkTech", "4G"),
         customer=payload.get("customer", "Unassigned"),
         region=payload.get("region", "Global"),
-        data_plan=plan,
-        data_limit_mb=_plan_allowance(db, plan),
+        data_plan=plan or None,
+        data_limit_mb=_plan_allowance(db, plan) if plan else 0.0,
         roaming_enabled=_effective_roaming_enabled(db, bool(payload.get("roamingEnabled", True))),
         status="active",
     )

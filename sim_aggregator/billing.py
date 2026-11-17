@@ -1726,6 +1726,7 @@ async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
     renew = bool(payload.get("renew"))
     reactivate = bool(payload.get("reactivate"))
     iccid = str(payload.get("iccid") or "").strip()
+    plan = str(payload.get("plan") or "").strip()
     if not 1 <= quantity <= 500:
         raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
     if not 1 <= months <= 24:
@@ -1745,7 +1746,7 @@ async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
         payer_name=str(payload.get("name") or "").strip() or None,
         payer_email=payer_email, payer_phone=str(payload.get("phone") or "").strip() or None,
         description=f"{'Reactivate' if reactivate else 'Renew' if renew else 'Provision'} {quantity} SIM(s) for {months} month(s) (${total:g})",
-        order_meta={"quantity": quantity, "months": months, "renew": renew, "reactivate": reactivate, "iccid": iccid}, created_at=_now(),
+        order_meta={"quantity": quantity, "months": months, "renew": renew, "reactivate": reactivate, "iccid": iccid, "plan": plan}, created_at=_now(),
     )
     db.add(payment)
     db.commit()
