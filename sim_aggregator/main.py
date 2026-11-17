@@ -172,7 +172,7 @@ PUBLIC_GET_PATHS = {"/branding"}
 API_PREFIXES = (
     "/auth", "/customers", "/plans", "/inventory", "/devices", "/marketplace",
     "/telecom", "/euicc", "/rsp", "/esim", "/sims", "/roaming", "/system",
-    "/webhooks", "/billing", "/alerts", "/logs", "/trash", "/email", "/branding",
+    "/webhooks", "/billing", "/alerts", "/logs", "/trash", "/email", "/branding", "/account",
 )
 
 # (methods, path regex) that only administrators may call.
@@ -228,6 +228,7 @@ CUSTOMER_RULES = [
     ({"GET"}, r"^/billing/(summary|invoices|payments|usage|rates)$"),
     ({"GET"}, r"^/billing/fee-summary$"),
     ({"GET"}, r"^/billing/fee-charges$"),
+    ({"GET"}, r"^/account/me$"),
     ({"GET"}, r"^/billing/wallet$"),
     ({"GET"}, r"^/billing/wallet/transactions$"),
     ({"GET"}, r"^/billing/data-pricing$"),
@@ -1374,6 +1375,37 @@ async def delete_user(user_id: int, db: Session = Depends(get_db)):
     _audit(db, "user.delete", user.email, f"role={user.role}")
     db.delete(user)
     db.commit()
+
+
+@app.get("/account/me")
+async def my_account(db: Session = Depends(get_db)):
+    """The signed-in customer's real registry record + live fleet + wallet."""
+    identity = current_user()
+    name = str(identity.get("customerName") or "").strip()
+    if not name:
+        raise HTTPException(status_code=404, detail="No customer account linked to this user")
+    customer = db.query(Customer).filter(func.lower(Customer.name) == func.lower(name)).first()
+    devices = db.query(Device).filter(func.lower(Device.customer) == func.lower(name)).all()
+    wallet = billing._wallet_balance(db, name)
+    return {
+        "id": customer.id if customer else None,
+        "name": name,
+        "contactName": customer.contact_name if customer else None,
+        "contactEmail": customer.contact_email if customer else None,
+        "phone": customer.phone if customer else None,
+        "status": customer.status if customer else "Active",
+        "notes": customer.notes if customer else None,
+        "simAdditionFee": float(customer.sim_addition_fee or 0) if customer else 0.0,
+        "platformFeePct": float(customer.platform_fee_pct or 0) if customer else 0.0,
+        "discountPct": float(customer.discount_pct or 0) if customer else 0.0,
+        "lastPaidAt": customer.last_paid_at.isoformat() if customer and customer.last_paid_at else None,
+        "sims": len(devices),
+        "active": sum(1 for d in devices if str(d.status or "").lower() == "active"),
+        "suspended": sum(1 for d in devices if str(d.status or "").lower() == "suspended"),
+        "usageMb": round(sum(float(d.usage_mb or 0) for d in devices), 1),
+        "dataLimitMb": round(sum(float(d.data_limit_mb or 0) for d in devices), 1),
+        "walletBalance": wallet,
+    }
 
 
 @app.get("/customers")
