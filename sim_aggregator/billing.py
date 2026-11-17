@@ -1296,7 +1296,7 @@ def _apply_prepaid_lifecycle(db: Session) -> dict:
         return {"enabled": False, "suspended": 0, "deactivated": 0}
     now = datetime.utcnow()
     grace_days = max(1, int(policy.grace_days or 15))
-    deactivate_days = max(grace_days + 1, int(policy.deactivate_days or 16))
+    deactivate_days = max(grace_days + 15, int(policy.deactivate_days or 30))
     suspended = deactivated = 0
     for customer in db.query(Customer).all():
         reference = customer.last_paid_at or customer.created_at
@@ -1681,11 +1681,13 @@ async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)
 
 
 
-def _sim_order_quote(db: Session, customer: str, quantity: int, months: int, renew: bool = False) -> dict:
+def _sim_order_quote(db: Session, customer: str, quantity: int, months: int, renew: bool = False,
+                       reactivate: bool = False) -> dict:
     pricing = _platform_pricing(db)
     registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
     addition = float(registry.sim_addition_fee or 0) if registry else 0.0
-    activation = 0.0 if renew else (float(pricing.activation_fee or 0) + addition)
+    include_activation = (not renew) or reactivate
+    activation = (float(pricing.activation_fee or 0) + addition) if include_activation else 0.0
     monthly = float(pricing.monthly_sim_fee or 0)
     discount = _customer_discount_pct(db, customer)
     activation_total = round(activation * quantity, 2)
@@ -1696,17 +1698,18 @@ def _sim_order_quote(db: Session, customer: str, quantity: int, months: int, ren
             "activationFeePerSim": round(activation, 2), "monthlyFeePerSim": round(monthly, 2),
             "activationTotal": activation_total, "monthlyTotal": monthly_total,
             "discountPct": round(discount, 2), "discount": round(gross - total, 2),
-            "total": total, "currency": "USD"}
+            "reactivate": reactivate, "total": total, "currency": "USD"}
 
 
 @router.get("/sim-order-quote")
 async def sim_order_quote(customer: str = Query(...), quantity: int = Query(1), months: int = Query(1),
-                          renew: bool = Query(False), db: Session = Depends(get_db)):
+                          renew: bool = Query(False), reactivate: bool = Query(False),
+                          db: Session = Depends(get_db)):
     if not 1 <= quantity <= 500:
         raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
     if not 1 <= months <= 24:
         raise HTTPException(status_code=422, detail="months must be between 1 and 24")
-    return _sim_order_quote(db, customer, quantity, months, renew)
+    return _sim_order_quote(db, customer, quantity, months, renew, reactivate)
 
 
 @router.post("/sim-order")
@@ -1718,11 +1721,13 @@ async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
     quantity = int(payload.get("quantity") or 1)
     months = int(payload.get("months") or 1)
     renew = bool(payload.get("renew"))
+    reactivate = bool(payload.get("reactivate"))
+    iccid = str(payload.get("iccid") or "").strip()
     if not 1 <= quantity <= 500:
         raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
     if not 1 <= months <= 24:
         raise HTTPException(status_code=422, detail="months must be between 1 and 24")
-    quote = _sim_order_quote(db, customer, quantity, months, renew)
+    quote = _sim_order_quote(db, customer, quantity, months, renew, reactivate)
     total = quote["total"]
     if total <= 0:
         raise HTTPException(status_code=422, detail="Nothing to bill")
@@ -1736,8 +1741,8 @@ async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
         mode=gateway.environment, status="pending",
         payer_name=str(payload.get("name") or "").strip() or None,
         payer_email=payer_email, payer_phone=str(payload.get("phone") or "").strip() or None,
-        description=f"{'Renew' if renew else 'Provision'} {quantity} SIM(s) for {months} month(s) (${total:g})",
-        order_meta={"quantity": quantity, "months": months, "renew": renew}, created_at=_now(),
+        description=f"{'Reactivate' if reactivate else 'Renew' if renew else 'Provision'} {quantity} SIM(s) for {months} month(s) (${total:g})",
+        order_meta={"quantity": quantity, "months": months, "renew": renew, "reactivate": reactivate, "iccid": iccid}, created_at=_now(),
     )
     db.add(payment)
     db.commit()

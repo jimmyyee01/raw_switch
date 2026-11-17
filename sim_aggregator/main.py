@@ -1027,17 +1027,32 @@ def _provision_sim_order(db, payment):
     meta = payment.order_meta or {}
     quantity = int(meta.get("quantity") or 1)
     months = int(meta.get("months") or 1)
-    if meta.get("renew"):
-        devices = db.query(Device).filter(Device.customer == payment.customer).filter(
-            Device.status.in_(["active", "suspended"])).order_by(Device.id).limit(quantity).all()
+    if meta.get("renew") or meta.get("reactivate"):
+        iccid = meta.get("iccid")
+        if iccid:
+            device = db.query(Device).filter(Device.iccid == iccid).first()
+            devices = [device] if device else []
+        elif meta.get("reactivate"):
+            devices = db.query(Device).filter(Device.customer == payment.customer).filter(
+                Device.status.in_(["terminated", "deactivated"])).order_by(Device.id).limit(quantity).all()
+        else:
+            devices = db.query(Device).filter(Device.customer == payment.customer).filter(
+                Device.status.in_(["active", "suspended"])).order_by(Device.id).limit(quantity).all()
+        changed = 0
         for device in devices:
+            if device is None:
+                continue
             base = device.paid_until or datetime.utcnow()
             if base.tzinfo is not None:
                 base = base.replace(tzinfo=None)
             device.paid_until = base + timedelta(days=months * 30)
             device.status = "active"
+            device.terminated_at = None
+            changed += 1
         db.commit()
-        _audit(db, "sim.renew", payment.customer, f"{len(devices)} SIM(s) renewed {months} month(s)")
+        action = "sim.reactivate" if meta.get("reactivate") else "sim.renew"
+        _audit(db, action, payment.customer,
+               f"{changed} SIM(s) {('reactivated' if meta.get('reactivate') else 'renewed')} {months} month(s)")
         return
     paid_until = datetime.utcnow() + timedelta(days=months * 30)
     plan = SIM_STUDIO_DEFAULT_PLAN
