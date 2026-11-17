@@ -208,6 +208,7 @@ ADMIN_RULES = [
     ({"PUT", "POST"}, r"^/billing/prepaid-policy$"),
     ({"POST"}, r"^/billing/apply-prepaid$"),
     ({"POST"}, r"^/billing/apply-monthly$"),
+    ({"POST"}, r"^/billing/wallet/credit$"),
     ({"PUT"}, r"^/billing/platform-pricing$"),
     ({"PUT"}, r"^/billing/discount-tiers$"),
 ]
@@ -227,6 +228,10 @@ CUSTOMER_RULES = [
     ({"GET"}, r"^/billing/(summary|invoices|payments|usage|rates)$"),
     ({"GET"}, r"^/billing/fee-summary$"),
     ({"GET"}, r"^/billing/fee-charges$"),
+    ({"GET"}, r"^/billing/wallet$"),
+    ({"GET"}, r"^/billing/wallet/transactions$"),
+    ({"GET"}, r"^/billing/data-pricing$"),
+    ({"POST"}, r"^/billing/data-purchase$"),
     ({"GET"}, r"^/billing/(invoices|payments)/\d+$"),
     ({"POST"}, r"^/billing/payments$"),
     ({"POST"}, r"^/billing/payments/\d+/cancel$"),
@@ -962,6 +967,58 @@ async def _start_alert_email_loop():
     asyncio.create_task(_alert_email_loop())
 
 
+
+def _payment_receipt(db, payment):
+    """Email the customer a receipt after a successful payment."""
+    settings = _email_settings(db)
+    customer = db.query(models.Customer).filter(
+        func.lower(models.Customer.name) == func.lower(payment.customer or "")
+    ).first()
+    to = (customer.contact_email if customer and customer.contact_email else "") or (payment.payer_email or "")
+    if not to:
+        return
+    _send_mail(db, settings, to,
+               f"[RAW-Switch] Payment receipt {payment.reference}",
+               f"Payment received: {payment.amount} {payment.currency}.\n\n"
+               f"Description: {payment.description or 'Account top-up'}\n"
+               f"Reference: {payment.reference}\n\nThank you for your payment.",
+               alert_key=None)
+
+
+def _apply_reminders(db):
+    """Email a reminder + invoice prompt when a customer is close to suspension."""
+    policy = billing._prepaid_policy(db)
+    days_list = [int(x) for x in str(policy.reminder_days or "7,3,1").split(",") if x.strip().isdigit()]
+    if not days_list:
+        return
+    settings = _email_settings(db)
+    now = datetime.utcnow()
+    grace = max(1, int(policy.grace_days or 15))
+    for customer in db.query(models.Customer).all():
+        ref = customer.last_paid_at or customer.created_at
+        if ref is None:
+            continue
+        if ref.tzinfo is not None:
+            ref = ref.replace(tzinfo=None)
+        days_left = grace - (now - ref).total_seconds() / 86400.0
+        if days_left <= 0:
+            continue
+        for d in days_list:
+            if abs(days_left - d) < 0.5:
+                to = customer.contact_email
+                if not to:
+                    continue
+                balance = billing._wallet_balance(db, customer.name)
+                _send_mail(db, settings, to,
+                           f"[RAW-Switch] Service reminder - {int(round(days_left))} day(s) left",
+                           f"Your prepaid service will be suspended in about {int(round(days_left))} day(s).\n"
+                           f"Current balance: ${balance:.2f}. Please top up to avoid interruption.",
+                           alert_key=f"reminder:{customer.name}:{d}")
+
+
+billing.payment_completed_hook = _payment_receipt
+
+
 async def _prepaid_lifecycle_loop():
     while True:
         await asyncio.sleep(3600)
@@ -969,6 +1026,7 @@ async def _prepaid_lifecycle_loop():
         try:
             billing._apply_prepaid_lifecycle(db)
             billing._apply_monthly_fees(db)
+            _apply_reminders(db)
         except Exception:
             pass
         finally:

@@ -516,6 +516,7 @@ class PlatformPricing(Base):
     monthly_sim_fee = Column(Float, nullable=False, default=0)
     activation_fee = Column(Float, nullable=False, default=0)
     last_monthly_billing = Column(String, nullable=True)
+    reminder_days = Column(String, nullable=False, default="7,3,1")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -540,4 +541,18 @@ class FeeCharge(Base):
     amount = Column(Float, nullable=False, default=0)
     sim_iccid = Column(String, nullable=True)
     description = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class WalletTransaction(Base):
+    """Prepaid wallet ledger: credits and debits per customer."""
+
+    __tablename__ = "wallet_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer = Column(String, nullable=False, index=True)
+    txn_type = Column(String, nullable=False)  # credit | debit
+    amount = Column(Float, nullable=False, default=0)
+    description = Column(String, nullable=True)
+    reference = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

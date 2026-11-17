@@ -49,6 +49,7 @@ from .models import (
     PlatformPricing,
     PrepaidPolicy,
     UsageRecord,
+    WalletTransaction,
 )
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -1104,6 +1105,14 @@ def _apply_transaction(db: Session, payment: Payment, data: dict) -> Payment:
                 paid_customer.last_paid_at = _now()
         _audit(db, "payment.completed", payment.reference,
                f"{payment.amount} {payment.currency}")
+        if payment.purpose == "top_up":
+            _wallet_move(db, payment.customer, "credit", payment.amount,
+                         f"Pesapal top-up {payment.reference}", reference=payment.reference)
+        if payment_completed_hook:
+            try:
+                payment_completed_hook(db, payment)
+            except Exception:
+                pass
     elif status_code in (2, 3) or description in {"FAILED", "REVERSED", "INVALID"}:
         payment.status = "failed"
     else:
@@ -1271,6 +1280,7 @@ def _prepaid_policy_payload(policy: PrepaidPolicy) -> dict:
         "enabled": bool(policy.enabled),
         "graceDays": int(policy.grace_days or 15),
         "deactivateDays": int(policy.deactivate_days or 16),
+        "reminderDays": [int(x) for x in str(policy.reminder_days or "7,3,1").split(",") if x.strip().isdigit()],
     }
 
 
@@ -1321,6 +1331,10 @@ async def update_prepaid_policy(payload: dict = Body(...), db: Session = Depends
         policy.deactivate_days = max(1, int(payload.get("deactivateDays") or 16))
     if policy.deactivate_days <= policy.grace_days:
         policy.deactivate_days = policy.grace_days + 1
+    if "reminderDays" in payload:
+        days = payload.get("reminderDays")
+        if isinstance(days, list):
+            policy.reminder_days = ",".join(str(int(d)) for d in days if str(d).isdigit()) or "7,3,1"
     _audit(db, "prepaid.policy", "policy", f"enabled={policy.enabled} grace={policy.grace_days} deactivate={policy.deactivate_days}")
     db.commit()
     db.refresh(policy)
@@ -1492,6 +1506,140 @@ def _apply_monthly_fees(db: Session) -> dict:
 @router.post("/apply-monthly")
 async def apply_monthly_now(db: Session = Depends(get_db)):
     return _apply_monthly_fees(db)
+
+
+
+# --------------------------------------------------------------------------- prepaid wallet + data purchase
+
+# Set by main.py so a completed payment can email a receipt without a circular import.
+payment_completed_hook = None
+
+
+def _wallet_balance(db: Session, customer: str) -> float:
+    credit = db.query(func.coalesce(func.sum(WalletTransaction.amount), 0.0)).filter(
+        WalletTransaction.customer == customer, WalletTransaction.txn_type == "credit"
+    ).scalar() or 0.0
+    debit = db.query(func.coalesce(func.sum(WalletTransaction.amount), 0.0)).filter(
+        WalletTransaction.customer == customer, WalletTransaction.txn_type == "debit"
+    ).scalar() or 0.0
+    return round(float(credit) - float(debit), 2)
+
+
+def _wallet_move(db: Session, customer: str, txn_type: str, amount: float, description: str, reference: str | None = None):
+    if amount <= 0:
+        return None
+    row = WalletTransaction(customer=customer, txn_type=txn_type, amount=round(float(amount), 2),
+                            description=description, reference=reference)
+    db.add(row)
+    return row
+
+
+def _data_quote(db: Session, customer: str, data_gb: float) -> dict:
+    rate_per_mb = float(FALLBACK_RATE["price_per_mb"])
+    registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
+    platform_pct = float(registry.platform_fee_pct or 0) if registry else 0.0
+    data_mb = round(data_gb * 1024, 3)
+    data_cost = round(data_mb * rate_per_mb, 2)
+    platform_fee = round(data_cost * platform_pct / 100.0, 2)
+    total = round(data_cost + platform_fee, 2)
+    return {"customer": customer, "dataGb": data_gb, "dataMb": data_mb, "ratePerMb": rate_per_mb,
+            "dataCost": data_cost, "platformFeePct": platform_pct, "platformFee": platform_fee,
+            "total": total, "currency": "USD"}
+
+
+@router.get("/wallet")
+async def wallet_balance(customer: str = Query(...), db: Session = Depends(get_db)):
+    return {"customer": customer, "balance": _wallet_balance(db, customer), "currency": "USD"}
+
+
+@router.get("/wallet/transactions")
+async def wallet_transactions(customer: str = Query(...), db: Session = Depends(get_db)):
+    rows = db.query(WalletTransaction).filter(WalletTransaction.customer == customer).order_by(WalletTransaction.id.desc()).limit(200).all()
+    return [{"id": r.id, "type": r.txn_type, "amount": round(float(r.amount or 0), 2),
+             "description": r.description, "reference": r.reference,
+             "createdAt": r.created_at.isoformat() if r.created_at else None} for r in rows]
+
+
+@router.post("/wallet/credit")
+async def wallet_credit(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Admin: credit a customer's prepaid wallet (manual top-up / adjustment)."""
+    customer = str(payload.get("customer") or "").strip()
+    try:
+        amount = float(payload.get("amountUsd") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="amountUsd must be a number")
+    if not customer or amount <= 0:
+        raise HTTPException(status_code=422, detail="customer and a positive amountUsd are required")
+    _wallet_move(db, customer, "credit", amount, str(payload.get("description") or "Manual credit")[:120])
+    db.commit()
+    _audit(db, "wallet.credit", customer, f"${amount:g}")
+    return {"customer": customer, "balance": _wallet_balance(db, customer), "currency": "USD"}
+
+
+@router.get("/data-pricing")
+async def data_pricing(customer: str = Query(...), dataGb: float = Query(...), db: Session = Depends(get_db)):
+    if dataGb <= 0:
+        raise HTTPException(status_code=422, detail="dataGb must be greater than zero")
+    return _data_quote(db, customer, dataGb)
+
+
+@router.post("/data-purchase")
+async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Buy a prepaid data amount: pay from wallet balance or fall back to Pesapal."""
+    customer = str(payload.get("customer") or "").strip()
+    if not customer:
+        raise HTTPException(status_code=422, detail="customer is required")
+    try:
+        data_gb = float(payload.get("dataGb") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="dataGb must be a number")
+    quote = _data_quote(db, customer, data_gb)
+    total = quote["total"]
+    if total <= 0:
+        raise HTTPException(status_code=422, detail="Nothing to bill")
+
+    balance = _wallet_balance(db, customer)
+    if balance >= total:
+        _wallet_move(db, customer, "debit", total,
+                     f"Data purchase {data_gb:g} GB (data ${quote['dataCost']:g} + platform fee ${quote['platformFee']:g})",
+                     reference=secrets.token_hex(4).upper())
+        invoice = Invoice(
+            number=_invoice_number(db), customer=customer,
+            period_start=_now().date().isoformat(), period_end=_now().date().isoformat(),
+            usage_mb=quote["dataMb"], subtotal=quote["dataCost"],
+            platform_fee_pct=quote["platformFeePct"], platform_fee=quote["platformFee"],
+            tax_pct=0.0, tax=0.0, total=total, paid_total=total,
+            currency="USD", status="paid", notes="Prepaid data purchase",
+            issued_at=_now(), due_at=_now(),
+        )
+        db.add(invoice)
+        db.flush()
+        db.add(InvoiceLine(invoice_id=invoice.id, description=f"Prepaid data - {data_gb:g} GB",
+                           rate_name="Prepaid data", quantity_mb=quote["dataMb"],
+                           price_per_mb=quote["ratePerMb"], amount=quote["dataCost"]))
+        db.commit()
+        _audit(db, "wallet.purchase", customer, f"{data_gb:g} GB = ${total:g} (wallet)")
+        return {"method": "wallet", "customer": customer, "dataGb": data_gb, "quote": quote,
+                "invoice": _invoice_payload(invoice), "balanceAfter": _wallet_balance(db, customer)}
+
+    # Insufficient balance: fall back to a Pesapal top-up for the required amount.
+    payer_email = str(payload.get("email") or "").strip()
+    if not payer_email or "@" not in payer_email:
+        raise HTTPException(status_code=422, detail="email is required to pay by Pesapal")
+    registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
+    payment = Payment(
+        reference=_payment_reference(db), customer=customer, purpose="top_up",
+        amount=total, amount_local=total, currency="USD", provider="pesapal",
+        mode=_gateway(db).environment, status="pending",
+        payer_name=str(payload.get("name") or "").strip() or None,
+        payer_email=payer_email, payer_phone=str(payload.get("phone") or "").strip() or None,
+        description=f"Prepaid data {data_gb:g} GB (${total:g})", created_at=_now(),
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return {"method": "pesapal", "customer": customer, "dataGb": data_gb, "quote": quote,
+            "payment": _payment_payload(payment), "checkoutUrl": payment.redirect_url or ""}
 
 
 @router.post("/payments", status_code=201)
