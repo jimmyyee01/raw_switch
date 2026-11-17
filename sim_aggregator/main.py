@@ -230,6 +230,8 @@ CUSTOMER_RULES = [
     ({"GET"}, r"^/billing/fee-charges$"),
     ({"GET"}, r"^/account/me$"),
     ({"GET"}, r"^/billing/wallet$"),
+    ({"GET"}, r"^/billing/sim-order-quote$"),
+    ({"POST"}, r"^/billing/sim-order$"),
     ({"GET"}, r"^/billing/wallet/transactions$"),
     ({"GET"}, r"^/billing/data-pricing$"),
     ({"POST"}, r"^/billing/data-purchase$"),
@@ -1018,6 +1020,39 @@ def _apply_reminders(db):
 
 
 billing.payment_completed_hook = _payment_receipt
+
+
+def _provision_sim_order(db, payment):
+    """Provision the ordered SIMs once their payment has completed."""
+    meta = payment.order_meta or {}
+    quantity = int(meta.get("quantity") or 1)
+    months = int(meta.get("months") or 1)
+    paid_until = datetime.utcnow() + timedelta(days=months * 30)
+    plan = SIM_STUDIO_DEFAULT_PLAN
+    for index in range(quantity):
+        device = Device(
+            iccid=_allocate_iccid(db),
+            device_name=f"{payment.customer} SIM {index + 1}",
+            sim_type="IoT SIM",
+            network_tech="4G",
+            customer=payment.customer,
+            region="Global",
+            data_plan=plan,
+            data_limit_mb=_plan_allowance(db, plan),
+            roaming_enabled=True,
+            status="active",
+            paid_until=paid_until,
+            activated_at=datetime.utcnow(),
+        )
+        db.add(device)
+    db.commit()
+    _audit(db, "sim.order.provisioned", payment.customer,
+           f"{quantity} SIM(s) for {months} month(s) ref={payment.reference}")
+
+
+billing.sim_order_completed_hook = _provision_sim_order
+
+
 
 
 async def _prepaid_lifecycle_loop():

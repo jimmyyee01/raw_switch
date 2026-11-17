@@ -67,6 +67,7 @@ class Device(Base):
     provisioned_by = Column(String, nullable=True)
     activated_at = Column(DateTime(timezone=True), nullable=True)
     terminated_at = Column(DateTime(timezone=True), nullable=True)
+    paid_until = Column(DateTime(timezone=True), nullable=True)
 
     carrier = relationship("Carrier", back_populates="devices")
     telecom_network = relationship("TelecomNetwork")
@@ -328,6 +329,7 @@ class Payment(Base):
     payment_method = Column(String, nullable=True)
     status_message = Column(String, nullable=True)
     raw = Column(JSON, nullable=True)
+    order_meta = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)

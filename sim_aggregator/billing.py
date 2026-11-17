@@ -1108,6 +1108,11 @@ def _apply_transaction(db: Session, payment: Payment, data: dict) -> Payment:
         if payment.purpose == "top_up":
             _wallet_move(db, payment.customer, "credit", payment.amount,
                          f"Pesapal top-up {payment.reference}", reference=payment.reference)
+        if payment.purpose == "sim_order" and sim_order_completed_hook:
+            try:
+                sim_order_completed_hook(db, payment)
+            except Exception:
+                pass
         if payment_completed_hook:
             try:
                 payment_completed_hook(db, payment)
@@ -1304,6 +1309,12 @@ def _apply_prepaid_lifecycle(db: Session) -> dict:
             status = str(device.status or "").lower()
             if status in {"terminated", "deactivated"}:
                 continue
+            reference = device.paid_until or customer.last_paid_at or customer.created_at
+            if reference is None:
+                continue
+            if reference.tzinfo is not None:
+                reference = reference.replace(tzinfo=None)
+            days = (now - reference).total_seconds() / 86400.0
             if days >= deactivate_days:
                 device.status = "terminated"
                 device.terminated_at = now
@@ -1513,6 +1524,7 @@ async def apply_monthly_now(db: Session = Depends(get_db)):
 
 # Set by main.py so a completed payment can email a receipt without a circular import.
 payment_completed_hook = None
+sim_order_completed_hook = None
 
 
 def _wallet_balance(db: Session, customer: str) -> float:
@@ -1666,6 +1678,92 @@ async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)
         db.refresh(payment)
     return {"method": "pesapal", "customer": customer, "dataGb": data_gb, "quote": quote,
             "payment": _payment_payload(payment), "checkoutUrl": payment.redirect_url or ""}
+
+
+
+def _sim_order_quote(db: Session, customer: str, quantity: int, months: int) -> dict:
+    pricing = _platform_pricing(db)
+    registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
+    addition = float(registry.sim_addition_fee or 0) if registry else 0.0
+    activation = float(pricing.activation_fee or 0) + addition
+    monthly = float(pricing.monthly_sim_fee or 0)
+    discount = _customer_discount_pct(db, customer)
+    activation_total = round(activation * quantity, 2)
+    monthly_total = round(monthly * quantity * months, 2)
+    gross = round(activation_total + monthly_total, 2)
+    total = round(gross * (1 - discount / 100.0), 2)
+    return {"customer": customer, "quantity": quantity, "months": months,
+            "activationFeePerSim": round(activation, 2), "monthlyFeePerSim": round(monthly, 2),
+            "activationTotal": activation_total, "monthlyTotal": monthly_total,
+            "discountPct": round(discount, 2), "discount": round(gross - total, 2),
+            "total": total, "currency": "USD"}
+
+
+@router.get("/sim-order-quote")
+async def sim_order_quote(customer: str = Query(...), quantity: int = Query(1), months: int = Query(1),
+                          db: Session = Depends(get_db)):
+    if not 1 <= quantity <= 500:
+        raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
+    if not 1 <= months <= 24:
+        raise HTTPException(status_code=422, detail="months must be between 1 and 24")
+    return _sim_order_quote(db, customer, quantity, months)
+
+
+@router.post("/sim-order")
+async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Charge the activation + monthly fees up front, then provision on payment."""
+    customer = str(payload.get("customer") or "").strip()
+    if not customer:
+        raise HTTPException(status_code=422, detail="customer is required")
+    quantity = int(payload.get("quantity") or 1)
+    months = int(payload.get("months") or 1)
+    if not 1 <= quantity <= 500:
+        raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
+    if not 1 <= months <= 24:
+        raise HTTPException(status_code=422, detail="months must be between 1 and 24")
+    quote = _sim_order_quote(db, customer, quantity, months)
+    total = quote["total"]
+    if total <= 0:
+        raise HTTPException(status_code=422, detail="Nothing to bill")
+    payer_email = str(payload.get("email") or "").strip()
+    if not payer_email or "@" not in payer_email:
+        raise HTTPException(status_code=422, detail="A valid payer email is required")
+    gateway = _gateway(db)
+    payment = Payment(
+        reference=_payment_reference(db), customer=customer, purpose="sim_order",
+        amount=total, amount_local=total, currency="USD", provider="pesapal",
+        mode=gateway.environment, status="pending",
+        payer_name=str(payload.get("name") or "").strip() or None,
+        payer_email=payer_email, payer_phone=str(payload.get("phone") or "").strip() or None,
+        description=f"Provision {quantity} SIM(s) for {months} month(s) (${total:g})",
+        order_meta={"quantity": quantity, "months": months}, created_at=_now(),
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    if gateway.environment == "simulated":
+        payment.order_tracking_id = f"SIM-{secrets.token_hex(6).upper()}"
+        payment.merchant_reference = payment.reference
+        payment.redirect_url = f"{_public_base(None)}/billing/pesapal/checkout/{payment.id}"
+        payment.status_message = "Simulated checkout ready"
+        db.commit()
+        db.refresh(payment)
+    else:
+        try:
+            order = await _submit_order(gateway, payment, _public_base(None))
+        except HTTPException as error:
+            payment.status = "failed"
+            payment.status_message = str(error.detail)
+            db.commit()
+            raise
+        payment.order_tracking_id = str(order.get("order_tracking_id") or "")
+        payment.merchant_reference = str(order.get("merchant_reference") or payment.reference)
+        payment.redirect_url = str(order.get("redirect_url") or "")
+        payment.status_message = "Awaiting payer authorisation on Pesapal"
+        db.commit()
+        db.refresh(payment)
+    return {"method": "pesapal", "quote": quote, "payment": _payment_payload(payment),
+            "checkoutUrl": payment.redirect_url or ""}
 
 
 @router.post("/payments", status_code=201)
