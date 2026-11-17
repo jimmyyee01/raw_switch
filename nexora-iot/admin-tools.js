@@ -313,6 +313,7 @@
       '<div class="twofa-row"><label style="font-size:11px">Grace days<input id="prepaidGrace" type="number" min="1" style="width:80px;margin-left:8px"></label>' +
       '<label style="font-size:11px">Deactivate days<input id="prepaidDeactivate" type="number" min="1" style="width:80px;margin-left:8px"></label>' +
       '<label style="font-size:11px"><input id="prepaidEnabled" type="checkbox" style="margin-left:8px"> Enabled</label></div>' +
+      '<div class="twofa-row" style="margin-top:8px"><label style="font-size:11px">Reminder days (before suspension)<input id="prepaidReminders" placeholder="7,3,1" style="width:160px;margin-left:8px"></label></div>' +
       '<div class="twofa-actions" style="margin-top:10px"><button class="btn btn-primary" id="prepaidSave">Save policy</button>' +
       '<button class="btn btn-secondary" id="prepaidRun">Run sweep now</button></div>' +
       '<p class="muted" id="prepaidResult" style="margin-top:8px"></p>';
@@ -322,6 +323,7 @@
         document.getElementById('prepaidGrace').value = p.graceDays;
         document.getElementById('prepaidDeactivate').value = p.deactivateDays;
         document.getElementById('prepaidEnabled').checked = !!p.enabled;
+        document.getElementById('prepaidReminders').value = (p.reminderDays || []).join(',');
         var b = document.getElementById('prepaidPolicyBadge');
         b.textContent = p.enabled ? 'Enabled' : 'Disabled';
         b.className = 'badge ' + (p.enabled ? 'active' : 'inactive');
@@ -331,7 +333,8 @@
       authRequest('/billing/prepaid-policy', { method: 'PUT', body: JSON.stringify({
         graceDays: Number(document.getElementById('prepaidGrace').value || 15),
         deactivateDays: Number(document.getElementById('prepaidDeactivate').value || 16),
-        enabled: document.getElementById('prepaidEnabled').checked
+        enabled: document.getElementById('prepaidEnabled').checked,
+        reminderDays: String(document.getElementById('prepaidReminders').value || '').split(',').map(function(x){return parseInt(x,10)}).filter(function(x){return x>0})
       }) }).then(function () { toast('Prepaid policy saved'); load(); }).catch(function (e) { toast(e.message, 'error'); });
     });
     document.getElementById('prepaidRun').addEventListener('click', function () {
