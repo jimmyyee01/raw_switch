@@ -504,6 +504,7 @@ class PrepaidPolicy(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     grace_days = Column(Integer, nullable=False, default=15)
     deactivate_days = Column(Integer, nullable=False, default=16)
+    reminder_days = Column(String, nullable=False, default="7,3,1")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -516,7 +517,6 @@ class PlatformPricing(Base):
     monthly_sim_fee = Column(Float, nullable=False, default=0)
     activation_fee = Column(Float, nullable=False, default=0)
     last_monthly_billing = Column(String, nullable=True)
-    reminder_days = Column(String, nullable=False, default="7,3,1")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
