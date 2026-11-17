@@ -1681,11 +1681,11 @@ async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)
 
 
 
-def _sim_order_quote(db: Session, customer: str, quantity: int, months: int) -> dict:
+def _sim_order_quote(db: Session, customer: str, quantity: int, months: int, renew: bool = False) -> dict:
     pricing = _platform_pricing(db)
     registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
     addition = float(registry.sim_addition_fee or 0) if registry else 0.0
-    activation = float(pricing.activation_fee or 0) + addition
+    activation = 0.0 if renew else (float(pricing.activation_fee or 0) + addition)
     monthly = float(pricing.monthly_sim_fee or 0)
     discount = _customer_discount_pct(db, customer)
     activation_total = round(activation * quantity, 2)
@@ -1701,12 +1701,12 @@ def _sim_order_quote(db: Session, customer: str, quantity: int, months: int) -> 
 
 @router.get("/sim-order-quote")
 async def sim_order_quote(customer: str = Query(...), quantity: int = Query(1), months: int = Query(1),
-                          db: Session = Depends(get_db)):
+                          renew: bool = Query(False), db: Session = Depends(get_db)):
     if not 1 <= quantity <= 500:
         raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
     if not 1 <= months <= 24:
         raise HTTPException(status_code=422, detail="months must be between 1 and 24")
-    return _sim_order_quote(db, customer, quantity, months)
+    return _sim_order_quote(db, customer, quantity, months, renew)
 
 
 @router.post("/sim-order")
@@ -1717,11 +1717,12 @@ async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="customer is required")
     quantity = int(payload.get("quantity") or 1)
     months = int(payload.get("months") or 1)
+    renew = bool(payload.get("renew"))
     if not 1 <= quantity <= 500:
         raise HTTPException(status_code=422, detail="quantity must be between 1 and 500")
     if not 1 <= months <= 24:
         raise HTTPException(status_code=422, detail="months must be between 1 and 24")
-    quote = _sim_order_quote(db, customer, quantity, months)
+    quote = _sim_order_quote(db, customer, quantity, months, renew)
     total = quote["total"]
     if total <= 0:
         raise HTTPException(status_code=422, detail="Nothing to bill")
@@ -1735,8 +1736,8 @@ async def sim_order(payload: dict = Body(...), db: Session = Depends(get_db)):
         mode=gateway.environment, status="pending",
         payer_name=str(payload.get("name") or "").strip() or None,
         payer_email=payer_email, payer_phone=str(payload.get("phone") or "").strip() or None,
-        description=f"Provision {quantity} SIM(s) for {months} month(s) (${total:g})",
-        order_meta={"quantity": quantity, "months": months}, created_at=_now(),
+        description=f"{'Renew' if renew else 'Provision'} {quantity} SIM(s) for {months} month(s) (${total:g})",
+        order_meta={"quantity": quantity, "months": months, "renew": renew}, created_at=_now(),
     )
     db.add(payment)
     db.commit()

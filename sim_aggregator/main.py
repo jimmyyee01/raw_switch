@@ -1027,6 +1027,18 @@ def _provision_sim_order(db, payment):
     meta = payment.order_meta or {}
     quantity = int(meta.get("quantity") or 1)
     months = int(meta.get("months") or 1)
+    if meta.get("renew"):
+        devices = db.query(Device).filter(Device.customer == payment.customer).filter(
+            Device.status.in_(["active", "suspended"])).order_by(Device.id).limit(quantity).all()
+        for device in devices:
+            base = device.paid_until or datetime.utcnow()
+            if base.tzinfo is not None:
+                base = base.replace(tzinfo=None)
+            device.paid_until = base + timedelta(days=months * 30)
+            device.status = "active"
+        db.commit()
+        _audit(db, "sim.renew", payment.customer, f"{len(devices)} SIM(s) renewed {months} month(s)")
+        return
     paid_until = datetime.utcnow() + timedelta(days=months * 30)
     plan = SIM_STUDIO_DEFAULT_PLAN
     for index in range(quantity):
