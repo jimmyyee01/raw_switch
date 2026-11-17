@@ -1538,12 +1538,16 @@ def _data_quote(db: Session, customer: str, data_gb: float) -> dict:
     rate_per_mb = float(FALLBACK_RATE["price_per_mb"])
     registry = db.query(Customer).filter(func.lower(Customer.name) == func.lower(customer)).first()
     platform_pct = float(registry.platform_fee_pct or 0) if registry else 0.0
+    discount = _customer_discount_pct(db, customer)
     data_mb = round(data_gb * 1024, 3)
     data_cost = round(data_mb * rate_per_mb, 2)
     platform_fee = round(data_cost * platform_pct / 100.0, 2)
-    total = round(data_cost + platform_fee, 2)
+    gross = round(data_cost + platform_fee, 2)
+    discount_amt = round(gross * discount / 100.0, 2)
+    total = round(gross - discount_amt, 2)
     return {"customer": customer, "dataGb": data_gb, "dataMb": data_mb, "ratePerMb": rate_per_mb,
             "dataCost": data_cost, "platformFeePct": platform_pct, "platformFee": platform_fee,
+            "discountPct": round(discount, 2), "discount": discount_amt,
             "total": total, "currency": "USD"}
 
 
@@ -1638,6 +1642,28 @@ async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)
     db.add(payment)
     db.commit()
     db.refresh(payment)
+    gateway = _gateway(db)
+    if gateway.environment == "simulated":
+        payment.order_tracking_id = f"SIM-{secrets.token_hex(6).upper()}"
+        payment.merchant_reference = payment.reference
+        payment.redirect_url = f"{_public_base(None)}/billing/pesapal/checkout/{payment.id}"
+        payment.status_message = "Simulated checkout ready"
+        db.commit()
+        db.refresh(payment)
+    else:
+        try:
+            order = await _submit_order(gateway, payment, _public_base(None))
+        except HTTPException as error:
+            payment.status = "failed"
+            payment.status_message = str(error.detail)
+            db.commit()
+            raise
+        payment.order_tracking_id = str(order.get("order_tracking_id") or "")
+        payment.merchant_reference = str(order.get("merchant_reference") or payment.reference)
+        payment.redirect_url = str(order.get("redirect_url") or "")
+        payment.status_message = "Awaiting payer authorisation on Pesapal"
+        db.commit()
+        db.refresh(payment)
     return {"method": "pesapal", "customer": customer, "dataGb": data_gb, "quote": quote,
             "payment": _payment_payload(payment), "checkoutUrl": payment.redirect_url or ""}
 
