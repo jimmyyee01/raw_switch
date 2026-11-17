@@ -1812,6 +1812,7 @@ def _device_payload(device: Device) -> dict:
         "network": device.telecom_network.name if device.telecom_network else (device.carrier.name if device.carrier else "Auto select"),
         "telecomNetworkId": device.telecom_network_id,
         "createdAt": device.created_at.isoformat() if device.created_at else None,
+        "paidUntil": device.paid_until.isoformat() if device.paid_until else None,
     }
 
 @app.get("/inventory")
