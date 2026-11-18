@@ -1501,13 +1501,16 @@ def _apply_monthly_fees(db: Session) -> dict:
         discount = _customer_discount_pct(db, customer.name)
         amount = round(sim_count * float(pricing.monthly_sim_fee) * (1 - discount / 100.0), 2)
         if amount > 0:
-            db.add(FeeCharge(
-                customer=customer.name,
-                charge_type="monthly",
-                amount=amount,
-                description=f"Monthly SIM fee for {key} ({sim_count} SIMs{(' at ' + str(round(discount, 1)) + '% discount') if discount else ''})",
-            ))
-            billed += 1
+            balance = _wallet_balance(db, customer.name)
+            if balance >= amount:
+                _wallet_move(db, customer.name, "debit", amount,
+                             f"Monthly SIM fee for {key} ({sim_count} SIMs)")
+                db.add(FeeCharge(customer=customer.name, charge_type="monthly", amount=amount,
+                                 description=f"Monthly SIM fee for {key} ({sim_count} SIMs) - paid from wallet"))
+                billed += 1
+            else:
+                db.add(FeeCharge(customer=customer.name, charge_type="monthly", amount=amount,
+                                 description=f"Monthly SIM fee for {key} ({sim_count} SIMs) - UNPAID (wallet ${balance:g})"))
     pricing.last_monthly_billing = key
     db.commit()
     _audit(db, "prepaid.monthly", "monthly", f"month={key} billed={billed}")
@@ -1672,8 +1675,9 @@ async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)
     if total <= 0:
         raise HTTPException(status_code=422, detail="Nothing to bill")
 
+    method = str(payload.get("method") or "").strip().lower()
     balance = _wallet_balance(db, customer)
-    if balance >= total:
+    if method != "pesapal" and balance >= total:
         _wallet_move(db, customer, "debit", total,
                      f"Data purchase {data_gb:g} GB (data ${quote['dataCost']:g} + platform fee ${quote['platformFee']:g})",
                      reference=secrets.token_hex(4).upper())
@@ -1695,8 +1699,10 @@ async def data_purchase(payload: dict = Body(...), db: Session = Depends(get_db)
         _audit(db, "wallet.purchase", customer, f"{data_gb:g} GB = ${total:g} (wallet)")
         return {"method": "wallet", "customer": customer, "dataGb": data_gb, "quote": quote,
                 "invoice": _invoice_payload(invoice), "balanceAfter": _wallet_balance(db, customer)}
+    if method == "wallet":
+        raise HTTPException(status_code=402, detail=f"Insufficient wallet balance (need ${total:g}, have ${balance:g})")
 
-    # Insufficient balance: fall back to a Pesapal top-up for the required amount.
+    # Pay via Pesapal (explicit method or insufficient-wallet fallback).
     payer_email = str(payload.get("email") or "").strip()
     if not payer_email or "@" not in payer_email:
         raise HTTPException(status_code=422, detail="email is required to pay by Pesapal")
