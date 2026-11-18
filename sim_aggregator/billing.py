@@ -1595,6 +1595,61 @@ async def wallet_credit(payload: dict = Body(...), db: Session = Depends(get_db)
     return {"customer": customer, "balance": _wallet_balance(db, customer), "currency": "USD"}
 
 
+
+@router.post("/wallet/topup")
+async def wallet_topup(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Customer: add prepaid wallet funds via the configured payment gateway."""
+    customer = str(payload.get("customer") or "").strip()
+    if not customer:
+        raise HTTPException(status_code=422, detail="customer is required")
+    try:
+        amount = round(float(payload.get("amountUsd") or 0), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="amountUsd must be a number")
+    if amount <= 0:
+        raise HTTPException(status_code=422, detail="amountUsd must be greater than zero")
+    email = str(payload.get("email") or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=422, detail="A valid payer email is required")
+    gateway = _gateway(db)
+    if not gateway.is_active:
+        raise HTTPException(status_code=409, detail="The payment gateway is disabled")
+    payment = Payment(
+        reference=_payment_reference(db), customer=customer, purpose="top_up",
+        amount=amount, amount_local=amount, currency="USD", provider="pesapal",
+        mode=gateway.environment, status="pending",
+        payer_name=str(payload.get("name") or "").strip() or None,
+        payer_email=email, payer_phone=str(payload.get("phone") or "").strip() or None,
+        description=f"Wallet top-up (${amount:g})", created_at=_now(),
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    if gateway.environment == "simulated":
+        payment.order_tracking_id = f"SIM-{secrets.token_hex(6).upper()}"
+        payment.merchant_reference = payment.reference
+        payment.redirect_url = f"{_public_base(None)}/billing/pesapal/checkout/{payment.id}"
+        payment.status_message = "Simulated checkout ready"
+        db.commit()
+        db.refresh(payment)
+    else:
+        try:
+            order = await _submit_order(gateway, payment, _public_base(None))
+        except HTTPException as error:
+            payment.status = "failed"
+            payment.status_message = str(error.detail)
+            db.commit()
+            raise
+        payment.order_tracking_id = str(order.get("order_tracking_id") or "")
+        payment.merchant_reference = str(order.get("merchant_reference") or payment.reference)
+        payment.redirect_url = str(order.get("redirect_url") or "")
+        payment.status_message = "Awaiting payer authorisation on Pesapal"
+        db.commit()
+        db.refresh(payment)
+    return {"payment": _payment_payload(payment), "checkoutUrl": payment.redirect_url or "",
+            "amount": amount, "currency": "USD", "walletBalance": _wallet_balance(db, customer)}
+
+
 @router.get("/data-pricing")
 async def data_pricing(customer: str = Query(...), dataGb: float = Query(...), db: Session = Depends(get_db)):
     if dataGb <= 0:

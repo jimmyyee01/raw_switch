@@ -42,7 +42,7 @@ class Device(Base):
     network_tech = Column(String, nullable=False, default="4G")
     customer = Column(String, nullable=False, default="Unassigned")
     region = Column(String, nullable=False, default="Global")
-    data_plan = Column(String, nullable=False, default="500 MB / month")
+    data_plan = Column(String, nullable=False, default="")
     usage_mb = Column(Float, nullable=False, default=0)
     data_limit_mb = Column(Float, nullable=False, default=500)
     roaming_enabled = Column(Boolean, nullable=False, default=True)
